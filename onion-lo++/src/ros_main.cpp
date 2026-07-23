@@ -64,6 +64,10 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
 
   pnh_.param("Onion/lidar_topic", lidar_topic_,
              std::string("/livox/lidar"));
+  pnh_.param("Onion/lidar_subscriber_queue_size",
+             lidar_subscriber_queue_size_, 20);
+  pnh_.param("Onion/publisher_queue_size",
+             publisher_queue_size_, 5);
   pnh_.param("Onion/lidar_type", config_.type,
              std::string("POINTCLOUD2"));
   pnh_.param("Onion/point_time_field", config_.point_time_field,
@@ -103,7 +107,7 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   pnh_.param("Diagnostics/stop_on_tracking_failure",
              stop_on_tracking_failure_, true);
   pnh_.param("Diagnostics/context_frames",
-             diagnostic_context_frames_, 10);
+             diagnostic_context_frames_, 20);
   std::string configured_diagnostic_directory;
   pnh_.param("Diagnostics/output_directory",
              configured_diagnostic_directory,
@@ -137,6 +141,14 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
     throw std::runtime_error(
         "Diagnostics/context_frames must be greater than zero");
   }
+  if (lidar_subscriber_queue_size_ <= 0) {
+    throw std::runtime_error(
+        "Onion/lidar_subscriber_queue_size must be greater than zero");
+  }
+  if (publisher_queue_size_ <= 0) {
+    throw std::runtime_error(
+        "Onion/publisher_queue_size must be greater than zero");
+  }
 
   if (config_.type != "POINTCLOUD2") {
     throw std::runtime_error(
@@ -165,24 +177,27 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   octomap_cache_.reslt_ = 0.2;
 
   odom_publisher_ =
-      pnh_.advertise<nav_msgs::Odometry>("odometry", queue_size_);
+      pnh_.advertise<nav_msgs::Odometry>("odometry", publisher_queue_size_);
   pose_publisher_ =
-      pnh_.advertise<geometry_msgs::PoseStamped>("pose", queue_size_);
+      pnh_.advertise<geometry_msgs::PoseStamped>("pose", publisher_queue_size_);
   frame_publisher_ =
-      pnh_.advertise<sensor_msgs::PointCloud2>("frame", queue_size_);
+      pnh_.advertise<sensor_msgs::PointCloud2>("frame",
+                                               publisher_queue_size_);
   local_map_publisher_ =
-      pnh_.advertise<sensor_msgs::PointCloud2>("local_map", queue_size_);
+      pnh_.advertise<sensor_msgs::PointCloud2>("local_map",
+                                               publisher_queue_size_);
   global_map_publisher_ =
       pnh_.advertise<sensor_msgs::PointCloud2>("global_map", 1, true);
   octomap_pub_ =
-      pnh_.advertise<octomap_msgs::Octomap>("octomap_binary", queue_size_);
+      pnh_.advertise<octomap_msgs::Octomap>("octomap_binary",
+                                            publisher_queue_size_);
   traj_publisher_ =
-      pnh_.advertise<nav_msgs::Path>("trajectory", queue_size_);
+      pnh_.advertise<nav_msgs::Path>("trajectory", publisher_queue_size_);
   path_msg_.header.frame_id = odom_frame_;
 
   trajLOdometry_.reset(new traj::TrajLOdometry(config_));
 
-  sub_lidar_ = nh_.subscribe(lidar_topic_, queue_size_,
+  sub_lidar_ = nh_.subscribe(lidar_topic_, lidar_subscriber_queue_size_,
                              &Onion_LO::PointCloudCallback, this,
                              ros::TransportHints().tcpNoDelay());
   save_map_server_ =
@@ -209,6 +224,10 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
                   << " mode; PointCloud2 topic: " << lidar_topic_
                   << "; registration voxel cap: "
                   << config_.max_points_per_voxel
+                  << "; LiDAR input queue: "
+                  << lidar_subscriber_queue_size_
+                  << "; publisher queue: "
+                  << publisher_queue_size_
                   << "; persistent map voxel: "
                   << global_map_voxel_size_ << " m"
                   << "\033[0m");

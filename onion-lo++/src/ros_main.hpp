@@ -79,7 +79,8 @@ class Onion_LO {
   nav_msgs::Path path_msg_;
   tf2_ros::TransformBroadcaster tf_broadcaster_;
 
-  int queue_size_ = 1;
+  int lidar_subscriber_queue_size_ = 20;
+  int publisher_queue_size_ = 5;
   int scan_num_ = 0;
   double save_timestamp_ = 0.0;
   double total_duration_ms_ = 0.0;
@@ -110,7 +111,7 @@ class Onion_LO {
   bool diagnostics_enabled_ = true;
   bool stop_on_tracking_failure_ = true;
   bool diagnostic_failure_dumped_ = false;
-  int diagnostic_context_frames_ = 10;
+  int diagnostic_context_frames_ = 20;
   std::string diagnostic_output_directory_;
   std::deque<sensor_msgs::PointCloud2> diagnostic_cloud_buffer_;
   Sophus::SE3d previous_mapping_pose_;

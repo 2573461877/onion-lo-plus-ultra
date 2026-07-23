@@ -44,6 +44,12 @@ Map:
 
 Onion:
   lidar_topic: "/livox/lidar"
+  # ROS subscriber backlog. At 10 Hz, 20 frames absorb about two seconds of
+  # transient processing delay before ROS has to discard an old input frame.
+  lidar_subscriber_queue_size: 20
+  # Output queues are smaller because PointCloud2 publications can be large.
+  # Raising this value does not improve odometry input reliability.
+  publisher_queue_size: 5
   lidar_type: "POINTCLOUD2"
   # Official livox_ros_driver2 xfer_format=0: FLOAT64 absolute nanoseconds.
   point_time_field: "timestamp"
@@ -79,7 +85,7 @@ Traj:
 Diagnostics:
   enabled: true
   stop_on_tracking_failure: true
-  # At 10 Hz this preserves approximately one second before the first fault.
-  context_frames: 10
+  # At 10 Hz this preserves approximately two seconds before the first fault.
+  context_frames: 20
   output_directory: "results/diagnostics"
 
