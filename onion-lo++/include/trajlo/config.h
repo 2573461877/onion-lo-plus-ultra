@@ -68,6 +68,12 @@ struct TrajConfig {
   // A scan is excluded from the persistent map when any optimized segment
   // has fewer correspondences than this value.
   int min_registration_inliers = 20;
+  // Numerical safeguards for the direct normal-equation optimizer.
+  double optimizer_damping = 1e-6;
+  double max_optimizer_translation_increment = 0.50;
+  double max_optimizer_rotation_increment_deg = 20.0;
+  double max_optimizer_translation_deviation = 1.0;
+  double max_optimizer_rotation_deviation_deg = 30.0;
 
   // MID-360 PointCloud2 input. The official livox_ros_driver2
   // xfer_format=0 path publishes an absolute FLOAT64 timestamp in ns.

@@ -61,11 +61,25 @@ Traj:
   converge_thresh: 0.001
   # Indoor defaults: bound registration cost while retaining enough planes.
   max_iterations: 8
-  voxel_size: 0.5
+  voxel_size: 1.0
   raw_point_num: 18000
   # Hard cap for the adaptive online registration-map voxel capacity.
-  max_points_per_voxel: 80
+  max_points_per_voxel: 150
   # Falling below this count latches map-integrity protection and prevents
   # the current run from overwriting the last known-good PCD.
   min_registration_inliers: 20
+  # The normal-equation solve is rejected before pose application when these
+  # per-iteration limits are exceeded.
+  optimizer_damping: 1.0e-6
+  max_optimizer_translation_increment: 0.50  # m
+  max_optimizer_rotation_increment_deg: 20.0
+  max_optimizer_translation_deviation: 1.0   # m from motion prediction
+  max_optimizer_rotation_deviation_deg: 30.0
+
+Diagnostics:
+  enabled: true
+  stop_on_tracking_failure: true
+  # At 10 Hz this preserves approximately one second before the first fault.
+  context_frames: 10
+  output_directory: "results/diagnostics"
 

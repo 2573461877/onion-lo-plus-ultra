@@ -52,6 +52,25 @@ TrajLOdometry::TrajLOdometry(const TrajConfig& config)
     throw std::invalid_argument(
         "Traj/min_registration_inliers must not be negative");
   }
+  if (!std::isfinite(config_.optimizer_damping) ||
+      config_.optimizer_damping < 0.0) {
+    throw std::invalid_argument(
+        "Traj/optimizer_damping must be finite and non-negative");
+  }
+  if (!std::isfinite(config_.max_optimizer_translation_increment) ||
+      config_.max_optimizer_translation_increment <= 0.0 ||
+      !std::isfinite(config_.max_optimizer_rotation_increment_deg) ||
+      config_.max_optimizer_rotation_increment_deg <= 0.0) {
+    throw std::invalid_argument(
+        "Traj optimizer increment limits must be finite and positive");
+  }
+  if (!std::isfinite(config_.max_optimizer_translation_deviation) ||
+      config_.max_optimizer_translation_deviation <= 0.0 ||
+      !std::isfinite(config_.max_optimizer_rotation_deviation_deg) ||
+      config_.max_optimizer_rotation_deviation_deg <= 0.0) {
+    throw std::invalid_argument(
+        "Traj optimizer deviation limits must be finite and positive");
+  }
 
   Eigen::Vector3d initial_translation = Eigen::Vector3d::Zero();
   Eigen::Matrix3d initial_rotation = Eigen::Matrix3d::Identity();
@@ -153,6 +172,18 @@ void TrajLOdometry::Start(const Scan::Ptr curr_points) {
   if (!curr_points.get()) return;
   tracking_healthy_ = true;
   last_registration_inliers_ = 0.0;
+  failure_reason_.clear();
+  failure_report_.clear();
+  optimization_trace_.str("");
+  optimization_trace_.clear();
+  ++diagnostic_scan_index_;
+  diagnostic_raw_points_ = curr_points->points.size();
+  diagnostic_classified_points_ = 0;
+  diagnostic_segment_index_ = -1;
+  diagnostic_segment_points_ = 0;
+  diagnostic_segment_plane_ratio_ = 0.0;
+  diagnostic_onion_factor_ = 0.0;
+  diagnostic_onion_plane_ratio_ = 0.0;
   bool has_registration_result = false;
   if (first_scan_) {
     last_begin_t_ns_ = curr_points->timestamp;
@@ -184,13 +215,16 @@ void TrajLOdometry::Start(const Scan::Ptr curr_points) {
           << " ms\033[0m" << std::endl;
   //-------Onion-----------
 	auto seg_scan_ = ConvertToPoints(seg_scan);
-	curr_points->points.clear();
-	curr_points->points = seg_scan_;
-	curr_points->size = seg_scan_.size();
+  curr_points->points.clear();
+  curr_points->points = seg_scan_;
+  curr_points->size = seg_scan_.size();
   const double safe_onion_factor =
       std::isfinite(onion.Onion_Factor) && onion.Onion_Factor > 0.0
           ? onion.Onion_Factor
           : 1e-3;
+  diagnostic_classified_points_ = curr_points->points.size();
+  diagnostic_onion_factor_ = safe_onion_factor;
+  diagnostic_onion_plane_ratio_ = onion.Plane_rotio;
   const double adaptive_capacity =
       std::pow(voxel_size / (safe_onion_factor / 3.0), 3.0);
   const int adaptive_max = static_cast<int>(std::clamp(
@@ -217,6 +251,9 @@ void TrajLOdometry::Start(const Scan::Ptr curr_points) {
     measure_cache.pop_front();
     bool Degenerate = (measure->plane_ratio > 0.80 || onion.Plane_rotio> 0.80);
     auto NUM = measure->points.size();
+    diagnostic_segment_index_ = frame_id;
+    diagnostic_segment_points_ = NUM;
+    diagnostic_segment_plane_ratio_ = measure->plane_ratio;
     std::vector<Vector6d> points;
     RangeFilter(measure, points, scan_num);
     const auto& tp = measure->tp;
@@ -251,7 +288,22 @@ void TrajLOdometry::Start(const Scan::Ptr curr_points) {
       Sophus::SE3d T_w_pred = frame_poses_[tp.first].getPose() * T_prior;
       frame_poses_[tp.second] = PoseStateWithLin<double>(tp.second, T_w_pred);
       map_->PreProcess(points, tp, safe_onion_factor, Degenerate);
-      Optimize();
+      optimization_trace_
+          << "segment=" << frame_id
+          << " tp_ns=[" << tp.first << ", " << tp.second << "]"
+          << " source_points=" << measure->points.size()
+          << " range_filtered_points=" << points.size()
+          << " registration_points=" << map_->RegistrationPointCount(tp)
+          << " plane_ratio=" << measure->plane_ratio
+          << " degenerate=" << (Degenerate ? "true" : "false")
+          << " predicted_translation="
+          << T_w_pred.translation().transpose() << "\n";
+      if (!Optimize()) {
+        T_wc_curr = T_w_pred;
+        current_pose = T_w_pred;
+        tracking_healthy_ = false;
+        throw std::runtime_error("tracking failure: " + failure_reason_);
+      }
       T_wc_curr = frame_poses_[tp.second].getPose();
       if (!has_registration_result) {
         last_registration_inliers_ = measure->lastInliers;
@@ -267,6 +319,36 @@ void TrajLOdometry::Start(const Scan::Ptr curr_points) {
         tracking_healthy_ = false;
       }
       Sophus::SE3d model_deviation = T_w_pred.inverse() * T_wc_curr;
+      const double translation_deviation =
+          model_deviation.translation().norm();
+      const double rotation_deviation_deg =
+          model_deviation.so3().log().norm() * 180.0 /
+          3.14159265358979323846;
+      optimization_trace_
+          << "segment=" << frame_id
+          << " optimized_vs_predicted_translation="
+          << translation_deviation
+          << " optimized_vs_predicted_rotation_deg="
+          << rotation_deviation_deg << "\n";
+      if (!std::isfinite(translation_deviation) ||
+          !std::isfinite(rotation_deviation_deg) ||
+          translation_deviation >
+              config_.max_optimizer_translation_deviation ||
+          rotation_deviation_deg >
+              config_.max_optimizer_rotation_deviation_deg) {
+        std::ostringstream reason;
+        reason << "optimized pose deviates from prediction by "
+               << translation_deviation << " m and "
+               << rotation_deviation_deg << " deg; limits are "
+               << config_.max_optimizer_translation_deviation << " m and "
+               << config_.max_optimizer_rotation_deviation_deg << " deg";
+        FailOptimization(reason.str());
+        frame_poses_[tp.second] =
+            PoseStateWithLin<double>(tp.second, T_w_pred);
+        T_wc_curr = T_w_pred;
+        current_pose = T_w_pred;
+        throw std::runtime_error("tracking failure: " + failure_reason_);
+      }
       T_prior = frame_poses_[tp.first].getPose().inverse() * T_wc_curr;
       Marginalize();
 			ScanVisData::Ptr visData(new ScanVisData);
@@ -292,7 +374,67 @@ void TrajLOdometry::Start(const Scan::Ptr curr_points) {
  * form. The connection between them has been discussed in
  * https://gitlab.com/VladyslavUsenko/basalt/-/issues/37
  * */
-void TrajLOdometry::Optimize() {
+bool TrajLOdometry::FailOptimization(const std::string& reason) {
+  tracking_healthy_ = false;
+  failure_reason_ = reason;
+
+  std::ostringstream report;
+  report << std::setprecision(17)
+         << "ONION_LO_TRACKING_FAILURE_V1\n"
+         << "reason=" << reason << "\n"
+         << "scan_index=" << diagnostic_scan_index_ << "\n"
+         << "raw_points=" << diagnostic_raw_points_ << "\n"
+         << "classified_points=" << diagnostic_classified_points_ << "\n"
+         << "segment_index=" << diagnostic_segment_index_ << "\n"
+         << "segment_points=" << diagnostic_segment_points_ << "\n"
+         << "segment_plane_ratio=" << diagnostic_segment_plane_ratio_ << "\n"
+         << "onion_factor=" << diagnostic_onion_factor_ << "\n"
+         << "onion_plane_ratio=" << diagnostic_onion_plane_ratio_ << "\n"
+         << "map_voxels=" << map_->MapVoxelCount() << "\n"
+         << "map_points=" << map_->MapPointCount() << "\n"
+         << "map_max_points_per_voxel=" << map_->max_points_per_voxel_ << "\n"
+         << "min_registration_inliers="
+         << config_.min_registration_inliers << "\n"
+         << "optimizer_damping=" << config_.optimizer_damping << "\n"
+         << "max_optimizer_translation_increment="
+         << config_.max_optimizer_translation_increment << "\n"
+         << "max_optimizer_rotation_increment_deg="
+         << config_.max_optimizer_rotation_increment_deg << "\n"
+         << "max_optimizer_translation_deviation="
+         << config_.max_optimizer_translation_deviation << "\n"
+         << "max_optimizer_rotation_deviation_deg="
+         << config_.max_optimizer_rotation_deviation_deg << "\n"
+         << "prior_translation=" << T_prior.translation().transpose() << "\n";
+
+  const Eigen::Quaterniond prior_quaternion = T_prior.unit_quaternion();
+  report << "prior_quaternion_xyzw="
+         << prior_quaternion.x() << " " << prior_quaternion.y() << " "
+         << prior_quaternion.z() << " " << prior_quaternion.w() << "\n"
+         << "frame_pose_count=" << frame_poses_.size() << "\n";
+  for (const auto& item : frame_poses_) {
+    const Sophus::SE3d& pose = item.second.getPose();
+    const Eigen::Quaterniond quaternion = pose.unit_quaternion();
+    report << "pose timestamp_ns=" << item.first
+           << " translation=" << pose.translation().transpose()
+           << " quaternion_xyzw=" << quaternion.x() << " "
+           << quaternion.y() << " " << quaternion.z() << " "
+           << quaternion.w()
+           << " linearized=" << (item.second.isLinearized() ? "true" : "false")
+           << "\n";
+  }
+  report << "optimization_trace_begin\n"
+         << optimization_trace_.str()
+         << "optimization_trace_end\n";
+  failure_report_ = report.str();
+  return false;
+}
+
+bool TrajLOdometry::Optimize() {
+  if (measurements.empty() || frame_poses_.empty()) {
+    return FailOptimization(
+        "optimizer received an empty measurement or pose window");
+  }
+
   AbsOrderMap aom;
   for (const auto& kv : frame_poses_) {
     aom.abs_order_map[kv.first] = std::make_pair(aom.total_size, POSE_SIZE);
@@ -306,22 +448,12 @@ void TrajLOdometry::Optimize() {
   for (int iter = 0; iter < max_iterations; iter++) {
     abs_H.setZero(aom.total_size, aom.total_size);
     abs_b.setZero(aom.total_size);
-		std::size_t count = measurements.size();
-		//std::cout << "Number of measurements: " << count << std::endl;
-    for (auto& m : measurements) {
-			/*
-			struct Measurement {
-				using Ptr = std::shared_ptr<Measurement>;
-				tStampPair tp;
-				std::vector<PointXYZIT> points;  // for visualization
-				Sophus::SE3d pseudoPrior;
+    double minimum_inliers = std::numeric_limits<double>::infinity();
+    double total_inliers = 0.0;
+    double total_error = 0.0;
+    std::string invalid_measurement_reason;
 
-				Eigen::Matrix<double, 12, 12> delta_H;
-				Eigen::Matrix<double, 12, 1> delta_b;
-				double lastError = 0;
-				double lastInliers = 0;
-			};
-			*/
+    for (auto& m : measurements) {
       int64_t idx_prev = m.first.first;
       int64_t idx_curr = m.first.second;
 
@@ -335,6 +467,33 @@ void TrajLOdometry::Optimize() {
       map_->PointRegistrationNormal({prev, curr}, tp, m.second->delta_H,
                                     m.second->delta_b, m.second->lastError,
                                     m.second->lastInliers);
+
+      minimum_inliers = std::min(minimum_inliers, m.second->lastInliers);
+      total_inliers += m.second->lastInliers;
+      total_error += m.second->lastError;
+      optimization_trace_
+          << "iteration=" << iter
+          << " measurement_ns=[" << idx_prev << ", " << idx_curr << "]"
+          << " source_points=" << m.second->points.size()
+          << " registration_points=" << map_->RegistrationPointCount(tp)
+          << " inliers=" << m.second->lastInliers
+          << " error_sum=" << m.second->lastError << "\n";
+
+      if (!std::isfinite(m.second->lastInliers) ||
+          !std::isfinite(m.second->lastError)) {
+        invalid_measurement_reason =
+            "registration produced non-finite inlier/error statistics";
+      } else if (m.second->lastInliers <
+                 static_cast<double>(config_.min_registration_inliers)) {
+        std::ostringstream reason;
+        reason << "registration inliers " << m.second->lastInliers
+               << " are below Traj/min_registration_inliers="
+               << config_.min_registration_inliers
+               << " at optimizer iteration " << iter
+               << " for measurement [" << idx_prev << ", " << idx_curr
+               << "]";
+        invalid_measurement_reason = reason.str();
+      }
 
       // 2. Motion constrains behind continuous movement.
       // Log(Tbe)-Log(prior) Equ.(6)
@@ -377,11 +536,16 @@ void TrajLOdometry::Optimize() {
       abs_b.segment<POSE_SIZE * 2>(abs_id) += m.second->delta_b;
     }
 
+    last_registration_inliers_ = minimum_inliers;
+    if (!invalid_measurement_reason.empty()) {
+      return FailOptimization(invalid_measurement_reason);
+    }
+
     // Marginalization Error Term
     // reference: Square Root Marginalization for Sliding-Window Bundle
     // Adjustment (N Demmel, D Schubert, C Sommer, D Cremers and V Usenko)
     // https://arxiv.org/abs/2109.02182
-    Eigen::VectorXd delta;
+    Eigen::VectorXd delta = Eigen::VectorXd::Zero(POSE_SIZE);
     for (const auto& p : frame_poses_) {
       if (p.second.isLinearized()) {
         delta = p.second.getDelta();
@@ -391,8 +555,97 @@ void TrajLOdometry::Optimize() {
     abs_b.head<POSE_SIZE>() -= marg_b;
     abs_b.head<POSE_SIZE>() -= (marg_H * delta);
 
-    Eigen::VectorXd update = abs_H.ldlt().solve(abs_b);
+    if (!abs_H.allFinite() || !abs_b.allFinite()) {
+      return FailOptimization(
+          "normal equations contain NaN or infinity before solving");
+    }
+
+    Eigen::MatrixXd symmetric_H = 0.5 * (abs_H + abs_H.transpose());
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigen_solver(
+        symmetric_H, Eigen::EigenvaluesOnly);
+    if (eigen_solver.info() != Eigen::Success) {
+      return FailOptimization("failed to compute Hessian eigenvalues");
+    }
+    const Eigen::VectorXd eigenvalues = eigen_solver.eigenvalues();
+    const double minimum_eigenvalue = eigenvalues.minCoeff();
+    const double maximum_eigenvalue = eigenvalues.maxCoeff();
+    const double minimum_absolute_eigenvalue =
+        eigenvalues.cwiseAbs().minCoeff();
+    const double maximum_absolute_eigenvalue =
+        eigenvalues.cwiseAbs().maxCoeff();
+    const double condition_estimate =
+        maximum_absolute_eigenvalue /
+        std::max(minimum_absolute_eigenvalue, 1e-15);
+
+    const double diagonal_scale =
+        std::max(1.0, symmetric_H.diagonal().cwiseAbs().maxCoeff());
+    Eigen::MatrixXd damped_H = symmetric_H;
+    damped_H.diagonal().array() +=
+        config_.optimizer_damping * diagonal_scale;
+
+    Eigen::LDLT<Eigen::MatrixXd> ldlt(damped_H);
+    if (ldlt.info() != Eigen::Success) {
+      return FailOptimization("LDLT factorization failed");
+    }
+    Eigen::VectorXd update = ldlt.solve(abs_b);
+    if (ldlt.info() != Eigen::Success || !update.allFinite()) {
+      return FailOptimization(
+          "LDLT solve produced an invalid pose increment");
+    }
+
     double max_inc = update.array().abs().maxCoeff();
+    double maximum_translation_increment = 0.0;
+    double maximum_rotation_increment_rad = 0.0;
+    for (const auto& kv : frame_poses_) {
+      const int idx = aom.abs_order_map.at(kv.first).first;
+      const Eigen::Matrix<double, POSE_SIZE, 1> pose_increment =
+          update.segment<POSE_SIZE>(idx);
+      maximum_translation_increment =
+          std::max(maximum_translation_increment,
+                   pose_increment.head<3>().norm());
+      maximum_rotation_increment_rad =
+          std::max(maximum_rotation_increment_rad,
+                   pose_increment.tail<3>().norm());
+    }
+    const double maximum_rotation_increment_deg =
+        maximum_rotation_increment_rad * 180.0 /
+        3.14159265358979323846;
+
+    optimization_trace_
+        << "iteration=" << iter
+        << " total_inliers=" << total_inliers
+        << " minimum_inliers=" << minimum_inliers
+        << " total_error=" << total_error
+        << " hessian_min_eigenvalue=" << minimum_eigenvalue
+        << " hessian_max_eigenvalue=" << maximum_eigenvalue
+        << " hessian_condition_estimate=" << condition_estimate
+        << " damping_diagonal=" << config_.optimizer_damping * diagonal_scale
+        << " update_max_abs=" << max_inc
+        << " update_translation_norm_max="
+        << maximum_translation_increment
+        << " update_rotation_deg_max="
+        << maximum_rotation_increment_deg << "\n";
+
+    if (maximum_translation_increment >
+        config_.max_optimizer_translation_increment) {
+      std::ostringstream reason;
+      reason << "optimizer translation increment "
+             << maximum_translation_increment
+             << " m exceeds limit "
+             << config_.max_optimizer_translation_increment
+             << " m at iteration " << iter;
+      return FailOptimization(reason.str());
+    }
+    if (maximum_rotation_increment_deg >
+        config_.max_optimizer_rotation_increment_deg) {
+      std::ostringstream reason;
+      reason << "optimizer rotation increment "
+             << maximum_rotation_increment_deg
+             << " deg exceeds limit "
+             << config_.max_optimizer_rotation_increment_deg
+             << " deg at iteration " << iter;
+      return FailOptimization(reason.str());
+    }
 
     if (max_inc < converge_thresh_) {
       break;
@@ -417,6 +670,7 @@ void TrajLOdometry::Optimize() {
     begin = frame_poses_[m.first.first];
     end = frame_poses_[m.first.second];
   }
+  return true;
 }
 
 void TrajLOdometry::Marginalize() {

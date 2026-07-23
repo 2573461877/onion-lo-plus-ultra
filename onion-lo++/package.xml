@@ -11,6 +11,7 @@
   
   <!-- Build dependencies -->
   <build_depend>roscpp</build_depend>
+  <build_depend>rosbag</build_depend>
   <build_depend>livox_ros_driver2</build_depend>
   <build_depend>cv_bridge</build_depend>
   <build_depend>fmt</build_depend>
@@ -31,6 +32,7 @@
   <!-- Execution dependencies -->
   <exec_depend>catkin</exec_depend>
   <exec_depend>roscpp</exec_depend>
+  <exec_depend>rosbag</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>fmt</exec_depend>
   <exec_depend>pcl_conversions</exec_depend>

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <deque>
 #include <fstream>
 #include <memory>
 #include <string>
@@ -53,6 +54,10 @@ class Onion_LO {
                            const ros::Time& stamp,
                            std::string* reason);
   void PublishMappingGlobalMap(const ros::Time& stamp);
+  void BufferDiagnosticFrame(
+      const sensor_msgs::PointCloud2::ConstPtr& message);
+  void DumpTrackingFailure(const sensor_msgs::PointCloud2& message,
+                           const std::string& reason);
   void InitialPoseCallback(
       const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg);
   void PublishLoadedMap();
@@ -102,6 +107,12 @@ class Onion_LO {
   bool previous_mapping_pose_valid_ = false;
   bool map_integrity_fault_ = false;
   std::string map_integrity_fault_reason_;
+  bool diagnostics_enabled_ = true;
+  bool stop_on_tracking_failure_ = true;
+  bool diagnostic_failure_dumped_ = false;
+  int diagnostic_context_frames_ = 10;
+  std::string diagnostic_output_directory_;
+  std::deque<sensor_msgs::PointCloud2> diagnostic_cloud_buffer_;
   Sophus::SE3d previous_mapping_pose_;
   ros::Time previous_mapping_stamp_;
 

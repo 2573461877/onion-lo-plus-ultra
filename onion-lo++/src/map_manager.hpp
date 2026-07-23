@@ -131,6 +131,13 @@ class MapManager {
 
   std::size_t MapPointCount() const;
 
+  inline std::size_t MapVoxelCount() const { return map.size(); }
+
+  inline std::size_t RegistrationPointCount(const tStampPair &tp) const {
+    const auto found = reg_points_database.find(tp);
+    return found == reg_points_database.end() ? 0U : found->second.size();
+  }
+
   struct ResultTuple {
     ResultTuple() {
       JTJ.setZero();

@@ -30,6 +30,8 @@ SOFTWARE.
 #include <thread>
 #include <iostream>
 #include <iomanip>
+#include <sstream>
+#include <string>
 #include <pcl/point_cloud.h>
 #include <tbb/concurrent_queue.h>
 #include <Eigen/Eigen>
@@ -52,7 +54,7 @@ class TrajLOdometry {
   void Start(const Scan::Ptr curr_points);
   bool SetInitialPose(const Sophus::SE3d& pose);
   pcl::PointCloud<MapPointXYZIL>::Ptr ExportRegistrationMap() const;
-  void Optimize();
+  bool Optimize();
   void Marginalize();
   void PointCloudSegment(Scan::Ptr scan, Measurement::Ptr measure);
   void RangeFilter(Measurement::Ptr measure, std::vector<Vector6d>& points, int scan_num);
@@ -71,7 +73,14 @@ class TrajLOdometry {
   inline double LastRegistrationInliers() const {
     return last_registration_inliers_;
   }
+  inline const std::string& LastFailureReason() const {
+    return failure_reason_;
+  }
+  inline const std::string& LastFailureReport() const {
+    return failure_report_;
+  }
  private:
+  bool FailOptimization(const std::string& reason);
   // 与地图、位姿、缓存相关的成员不变
   MapManager::Ptr map_;
   bool isMove_ = false;
@@ -105,6 +114,17 @@ class TrajLOdometry {
   Sophus::SE3d initial_pose_;
   bool tracking_healthy_ = true;
   double last_registration_inliers_ = 0.0;
+  std::string failure_reason_;
+  std::string failure_report_;
+  std::ostringstream optimization_trace_;
+  std::size_t diagnostic_scan_index_ = 0;
+  std::size_t diagnostic_raw_points_ = 0;
+  std::size_t diagnostic_classified_points_ = 0;
+  int diagnostic_segment_index_ = -1;
+  std::size_t diagnostic_segment_points_ = 0;
+  double diagnostic_segment_plane_ratio_ = 0.0;
+  double diagnostic_onion_factor_ = 0.0;
+  double diagnostic_onion_plane_ratio_ = 0.0;
 
   //Onion
   double Resolution_v;

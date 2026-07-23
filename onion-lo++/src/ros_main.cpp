@@ -10,6 +10,8 @@
 #include <stdexcept>
 #include <utility>
 
+#include <rosbag/bag.h>
+
 namespace fs = boost::filesystem;
 
 namespace {
@@ -86,6 +88,28 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
              config_.max_points_per_voxel, 80);
   pnh_.param("Traj/min_registration_inliers",
              config_.min_registration_inliers, 20);
+  pnh_.param("Traj/optimizer_damping",
+             config_.optimizer_damping, 1e-6);
+  pnh_.param("Traj/max_optimizer_translation_increment",
+             config_.max_optimizer_translation_increment, 0.50);
+  pnh_.param("Traj/max_optimizer_rotation_increment_deg",
+             config_.max_optimizer_rotation_increment_deg, 20.0);
+  pnh_.param("Traj/max_optimizer_translation_deviation",
+             config_.max_optimizer_translation_deviation, 1.0);
+  pnh_.param("Traj/max_optimizer_rotation_deviation_deg",
+             config_.max_optimizer_rotation_deviation_deg, 30.0);
+
+  pnh_.param("Diagnostics/enabled", diagnostics_enabled_, true);
+  pnh_.param("Diagnostics/stop_on_tracking_failure",
+             stop_on_tracking_failure_, true);
+  pnh_.param("Diagnostics/context_frames",
+             diagnostic_context_frames_, 10);
+  std::string configured_diagnostic_directory;
+  pnh_.param("Diagnostics/output_directory",
+             configured_diagnostic_directory,
+             std::string("results/diagnostics"));
+  diagnostic_output_directory_ =
+      ResolveMapPath(configured_diagnostic_directory);
 
   if (global_map_voxel_size_ <= 0.0) {
     throw std::runtime_error(
@@ -108,6 +132,10 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
       max_mapping_angular_speed_deg_ <= 0.0) {
     throw std::runtime_error(
         "Map mapping-speed limits must be greater than zero");
+  }
+  if (diagnostic_context_frames_ <= 0) {
+    throw std::runtime_error(
+        "Diagnostics/context_frames must be greater than zero");
   }
 
   if (config_.type != "POINTCLOUD2") {
@@ -207,6 +235,7 @@ std::string Onion_LO::ResolveMapPath(
 
 void Onion_LO::PointCloudCallback(
     const sensor_msgs::PointCloud2::ConstPtr& msg) {
+  BufferDiagnosticFrame(msg);
   try {
     if (!msg->header.frame_id.empty() &&
         msg->header.frame_id != child_frame_) {
@@ -219,9 +248,286 @@ void Onion_LO::PointCloudCallback(
     }
     LiDAR_odom(msg);
   } catch (const std::exception& exception) {
-    ROS_ERROR_THROTTLE(1.0, "PointCloud2 conversion/odometry failed: %s",
-                       exception.what());
+    map_integrity_fault_ = true;
+    map_integrity_fault_reason_ = exception.what();
+    if (diagnostics_enabled_) {
+      DumpTrackingFailure(*msg, exception.what());
+    }
+    ROS_FATAL("PointCloud2 conversion/odometry stopped: %s",
+              exception.what());
+    if (stop_on_tracking_failure_) {
+      ros::shutdown();
+    }
   }
+}
+
+void Onion_LO::BufferDiagnosticFrame(
+    const sensor_msgs::PointCloud2::ConstPtr& message) {
+  if (!diagnostics_enabled_ || !message) return;
+
+  diagnostic_cloud_buffer_.emplace_back(*message);
+  while (diagnostic_cloud_buffer_.size() >
+         static_cast<std::size_t>(diagnostic_context_frames_)) {
+    diagnostic_cloud_buffer_.pop_front();
+  }
+}
+
+void Onion_LO::DumpTrackingFailure(
+    const sensor_msgs::PointCloud2& message,
+    const std::string& reason) {
+  if (diagnostic_failure_dumped_) return;
+  diagnostic_failure_dumped_ = true;
+
+  const fs::path output_directory(diagnostic_output_directory_);
+  boost::system::error_code directory_error;
+  fs::create_directories(output_directory, directory_error);
+  if (directory_error) {
+    ROS_ERROR("Failed to create diagnostic directory '%s': %s",
+              diagnostic_output_directory_.c_str(),
+              directory_error.message().c_str());
+    return;
+  }
+
+  const std::uint64_t timestamp_ns =
+      message.header.stamp.isZero()
+          ? ros::WallTime::now().toNSec()
+          : message.header.stamp.toNSec();
+  const std::string stem = "tracking_failure_" +
+                           std::to_string(timestamp_ns);
+  const fs::path bag_path = output_directory / (stem + "_context.bag");
+  const fs::path map_path =
+      output_directory / (stem + "_registration_map.pcd");
+  const fs::path report_path = output_directory / (stem + "_report.txt");
+
+  const sensor_msgs::PointField* diagnostic_x = nullptr;
+  const sensor_msgs::PointField* diagnostic_y = nullptr;
+  const sensor_msgs::PointField* diagnostic_z = nullptr;
+  const sensor_msgs::PointField* diagnostic_time = nullptr;
+  for (const auto& field : message.fields) {
+    if (field.name == "x") diagnostic_x = &field;
+    if (field.name == "y") diagnostic_y = &field;
+    if (field.name == "z") diagnostic_z = &field;
+    if (field.name == config_.point_time_field) diagnostic_time = &field;
+  }
+  Eigen::Vector3d raw_minimum =
+      Eigen::Vector3d::Constant(std::numeric_limits<double>::infinity());
+  Eigen::Vector3d raw_maximum =
+      Eigen::Vector3d::Constant(-std::numeric_limits<double>::infinity());
+  double minimum_point_time =
+      std::numeric_limits<double>::infinity();
+  double maximum_point_time =
+      -std::numeric_limits<double>::infinity();
+  std::size_t finite_point_count = 0;
+  const bool can_inspect_points =
+      diagnostic_x && diagnostic_y && diagnostic_z && diagnostic_time &&
+      diagnostic_x->datatype == sensor_msgs::PointField::FLOAT32 &&
+      diagnostic_y->datatype == sensor_msgs::PointField::FLOAT32 &&
+      diagnostic_z->datatype == sensor_msgs::PointField::FLOAT32 &&
+      diagnostic_time->datatype == sensor_msgs::PointField::FLOAT64 &&
+      diagnostic_x->offset + sizeof(float) <= message.point_step &&
+      diagnostic_y->offset + sizeof(float) <= message.point_step &&
+      diagnostic_z->offset + sizeof(float) <= message.point_step &&
+      diagnostic_time->offset + sizeof(double) <= message.point_step &&
+      message.row_step >= message.width * message.point_step &&
+      message.data.size() >=
+          static_cast<std::size_t>(message.row_step) * message.height;
+  if (can_inspect_points) {
+    const double header_time = message.header.stamp.toSec();
+    for (std::uint32_t row = 0; row < message.height; ++row) {
+      const std::uint8_t* row_data =
+          message.data.data() +
+          static_cast<std::size_t>(row) * message.row_step;
+      for (std::uint32_t column = 0; column < message.width; ++column) {
+        const std::uint8_t* point_data =
+            row_data + static_cast<std::size_t>(column) *
+                           message.point_step;
+        const float x =
+            ReadUnalignedField<float>(point_data, diagnostic_x->offset);
+        const float y =
+            ReadUnalignedField<float>(point_data, diagnostic_y->offset);
+        const float z =
+            ReadUnalignedField<float>(point_data, diagnostic_z->offset);
+        const double raw_time = ReadUnalignedField<double>(
+            point_data, diagnostic_time->offset);
+        const double scaled_time =
+            config_.point_time_is_offset
+                ? header_time + raw_time * config_.point_time_scale
+                : raw_time * config_.point_time_scale;
+        if (!std::isfinite(x) || !std::isfinite(y) ||
+            !std::isfinite(z) || !std::isfinite(scaled_time)) {
+          continue;
+        }
+        const Eigen::Vector3d position(x, y, z);
+        raw_minimum = raw_minimum.cwiseMin(position);
+        raw_maximum = raw_maximum.cwiseMax(position);
+        minimum_point_time = std::min(minimum_point_time, scaled_time);
+        maximum_point_time = std::max(maximum_point_time, scaled_time);
+        ++finite_point_count;
+      }
+    }
+  }
+
+  std::string bag_status;
+  try {
+    rosbag::Bag bag;
+    bag.open(bag_path.string(), rosbag::bagmode::Write);
+    for (const auto& cloud : diagnostic_cloud_buffer_) {
+      const ros::Time write_time =
+          cloud.header.stamp.isZero() ? ros::Time::now()
+                                      : cloud.header.stamp;
+      bag.write(lidar_topic_, write_time, cloud);
+    }
+    bag.close();
+    bag_status = "saved " +
+                 std::to_string(diagnostic_cloud_buffer_.size()) +
+                 " PointCloud2 frames";
+  } catch (const std::exception& exception) {
+    bag_status = std::string("failed: ") + exception.what();
+  }
+
+  std::string registration_map_status;
+  try {
+    const auto registration_map =
+        trajLOdometry_->ExportRegistrationMap();
+    if (!registration_map || registration_map->empty()) {
+      registration_map_status = "not saved: registration map is empty";
+    } else {
+      const int status = pcl::io::savePCDFileBinaryCompressed(
+          map_path.string(), *registration_map);
+      registration_map_status =
+          status == 0
+              ? "saved " + std::to_string(registration_map->size()) +
+                    " XYZ/intensity/label points"
+              : "failed: PCL writer returned " + std::to_string(status);
+    }
+  } catch (const std::exception& exception) {
+    registration_map_status =
+        std::string("failed: ") + exception.what();
+  }
+
+  std::ofstream report(report_path.string(),
+                       std::ios::out | std::ios::trunc);
+  if (!report.is_open()) {
+    ROS_ERROR("Failed to write diagnostic report '%s'",
+              report_path.string().c_str());
+    return;
+  }
+
+  report << std::setprecision(17)
+         << "ONION_LO_FAILURE_ARTIFACTS_V1\n"
+         << "reason=" << reason << "\n"
+         << "lidar_topic=" << lidar_topic_ << "\n"
+         << "message_stamp_sec=" << message.header.stamp.toSec() << "\n"
+         << "message_stamp_ns=" << message.header.stamp.toNSec() << "\n"
+         << "message_frame_id=" << message.header.frame_id << "\n"
+         << "message_width=" << message.width << "\n"
+         << "message_height=" << message.height << "\n"
+         << "message_point_count="
+         << static_cast<std::size_t>(message.width) * message.height << "\n"
+         << "message_point_step=" << message.point_step << "\n"
+         << "message_row_step=" << message.row_step << "\n"
+         << "message_data_bytes=" << message.data.size() << "\n"
+         << "message_is_bigendian="
+         << (message.is_bigendian ? "true" : "false") << "\n"
+         << "message_is_dense="
+         << (message.is_dense ? "true" : "false") << "\n"
+         << "diagnostic_point_layout_valid="
+         << (can_inspect_points ? "true" : "false") << "\n"
+         << "diagnostic_finite_points=" << finite_point_count << "\n";
+  if (finite_point_count > 0) {
+    report << "raw_cloud_minimum_xyz=" << raw_minimum.transpose() << "\n"
+           << "raw_cloud_maximum_xyz=" << raw_maximum.transpose() << "\n"
+           << "raw_cloud_extents_xyz="
+           << (raw_maximum - raw_minimum).transpose() << "\n"
+           << "point_time_min_sec=" << minimum_point_time << "\n"
+           << "point_time_max_sec=" << maximum_point_time << "\n"
+           << "point_time_span_ms="
+           << (maximum_point_time - minimum_point_time) * 1e3 << "\n"
+           << "point_time_min_to_header_ms="
+           << (minimum_point_time - message.header.stamp.toSec()) * 1e3
+           << "\n";
+  }
+  report
+         << "point_fields_begin\n";
+  for (const auto& field : message.fields) {
+    report << "field name=" << field.name
+           << " offset=" << field.offset
+           << " datatype=" << static_cast<int>(field.datatype)
+           << " count=" << field.count << "\n";
+  }
+  report << "point_fields_end\n"
+         << "point_time_field=" << config_.point_time_field << "\n"
+         << "point_time_scale=" << config_.point_time_scale << "\n"
+         << "point_time_is_offset="
+         << (config_.point_time_is_offset ? "true" : "false") << "\n"
+         << "voxel_size=" << config_.voxel_size << "\n"
+         << "max_points_per_voxel="
+         << config_.max_points_per_voxel << "\n"
+         << "max_iterations=" << config_.max_iterations << "\n"
+         << "raw_point_num=" << config_.raw_point_num << "\n"
+         << "min_registration_inliers="
+         << config_.min_registration_inliers << "\n"
+         << "optimizer_damping=" << config_.optimizer_damping << "\n"
+         << "max_optimizer_translation_increment="
+         << config_.max_optimizer_translation_increment << "\n"
+         << "max_optimizer_rotation_increment_deg="
+         << config_.max_optimizer_rotation_increment_deg << "\n"
+         << "max_optimizer_translation_deviation="
+         << config_.max_optimizer_translation_deviation << "\n"
+         << "max_optimizer_rotation_deviation_deg="
+         << config_.max_optimizer_rotation_deviation_deg << "\n"
+         << "diagnostic_buffer_frames="
+         << diagnostic_cloud_buffer_.size() << "\n";
+  for (std::size_t index = 0;
+       index < diagnostic_cloud_buffer_.size(); ++index) {
+    const auto& cloud = diagnostic_cloud_buffer_[index];
+    report << "buffer_frame index=" << index
+           << " stamp_ns=" << cloud.header.stamp.toNSec()
+           << " points="
+           << static_cast<std::size_t>(cloud.width) * cloud.height
+           << " bytes=" << cloud.data.size() << "\n";
+  }
+
+  const Sophus::SE3d pose = trajLOdometry_->current_pose;
+  const Eigen::Quaterniond quaternion = pose.unit_quaternion();
+  report << "last_safe_pose_translation="
+         << pose.translation().transpose() << "\n"
+         << "last_safe_pose_quaternion_xyzw="
+         << quaternion.x() << " " << quaternion.y() << " "
+         << quaternion.z() << " " << quaternion.w() << "\n"
+         << "published_path_pose_count=" << path_msg_.poses.size() << "\n";
+  const std::size_t trajectory_begin =
+      path_msg_.poses.size() > 50 ? path_msg_.poses.size() - 50 : 0;
+  for (std::size_t index = trajectory_begin;
+       index < path_msg_.poses.size(); ++index) {
+    const auto& path_pose = path_msg_.poses[index];
+    report << "published_pose index=" << index
+           << " stamp_ns=" << path_pose.header.stamp.toNSec()
+           << " xyz=" << path_pose.pose.position.x << " "
+           << path_pose.pose.position.y << " "
+           << path_pose.pose.position.z
+           << " quaternion_xyzw="
+           << path_pose.pose.orientation.x << " "
+           << path_pose.pose.orientation.y << " "
+           << path_pose.pose.orientation.z << " "
+           << path_pose.pose.orientation.w << "\n";
+  }
+  report
+         << "context_bag=" << bag_path.string() << "\n"
+         << "context_bag_status=" << bag_status << "\n"
+         << "registration_map=" << map_path.string() << "\n"
+         << "registration_map_status="
+         << registration_map_status << "\n"
+         << "odometry_report_begin\n"
+         << trajLOdometry_->LastFailureReport()
+         << "odometry_report_end\n";
+  report.close();
+
+  ROS_FATAL_STREAM(
+      "Tracking failure artifacts saved. Report: "
+      << report_path.string() << "; context bag: "
+      << bag_path.string() << "; registration map: "
+      << map_path.string());
 }
 
 traj::Scan::Ptr Onion_LO::Msg2Scan(const sensor_msgs::PointCloud2& msg) {
@@ -395,6 +701,10 @@ void Onion_LO::LiDAR_odom(
     } else {
       ROS_WARN_STREAM_THROTTLE(
           1.0, "Persistent map skipped current scan: " << rejection_reason);
+      if (map_integrity_fault_ && stop_on_tracking_failure_) {
+        throw std::runtime_error(
+            "persistent-map integrity failure: " + rejection_reason);
+      }
     }
   }
 
