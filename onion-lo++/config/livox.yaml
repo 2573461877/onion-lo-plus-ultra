@@ -1,0 +1,47 @@
+Map:
+  # Legacy live OctoMap output. This is independent from PCD map saving.
+  pcd_save_en: false
+  # Save TUM-style trajectory to results/Onion.txt.
+  Save_path: false
+  child_frame: "base_link"
+  odom_frame: "odom"
+
+  # Persistent global PCD map.
+  localization_mode: false
+  map_path: "results/onion_map.pcd"       # relative paths use the package root
+  save_pcd_en: true
+  save_map_on_shutdown: true
+  map_binary_compressed: true
+  global_map_voxel_size: 0.10
+
+  # A loaded map is immutable by default: no point aging and no 300 m pruning.
+  update_loaded_map: false
+  # 0 keeps all finite PCD points. Use a positive cap only to reduce RAM.
+  loaded_map_max_points_per_voxel: 0
+
+  # Localization initial guess: [x, y, z, roll, pitch, yaw], radians.
+  # It can also be reset online from RViz /initialpose.
+  initial_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  path_max_size: 5000
+
+Onion:
+  lidar_topic: "/livox/lidar"
+  lidar_type: "POINTCLOUD2"
+  # Official livox_ros_driver2 xfer_format=0: FLOAT64 absolute nanoseconds.
+  point_time_field: "timestamp"
+  point_time_scale: 1.0e-9
+  point_time_is_offset: false
+  exp_key_num: 3000
+  Resolution_h: 1.0
+  Resolution_v: 1.0
+Traj:
+  init_interval: 200  #ms
+  seg_interval: 20   #ms
+  seg_num: 3
+  kinematic_constrain: 2.0
+  init_pose_weight: 1000000000.0
+  converge_thresh: 0.001
+  max_iterations: 20
+  voxel_size: 1.0
+  raw_point_num: 30000
+

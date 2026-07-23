@@ -1,69 +1,98 @@
-# Prerequisites
-*.d
+# Codex/local workspace data
+/.codex-remote-attachments/
 
-# Compiled Object files
+# Catkin/colcon workspace outputs
+/build/
+/devel/
+/install/
+/log/
+/logs/
+/*/build/
+/*/devel/
+/*/install/
+/*/log/
+/.catkin_tools/
+/.catkin_workspace
+
+# CMake outputs
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+
+# Compiled objects, libraries, and executables
+*.d
 *.slo
 *.lo
 *.o
 *.obj
-
-# Precompiled Headers
 *.gch
 *.pch
-
-# Linker files
 *.ilk
-
-# Debugger Files
 *.pdb
-
-# Compiled Dynamic libraries
 *.so
+*.so.*
 *.dylib
 *.dll
-*.so.*
-
-
-# Fortran module files
 *.mod
 *.smod
-
-# Compiled Static libraries
-*.lai
-*.la
 *.a
+*.la
+*.lai
 *.lib
-
-# Executables
 *.exe
-*.out
 *.app
-
-# Build directories
-build/
-Build/
-build-*/
-
-# CMake generated files
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-install_manifest.txt
-compile_commands.json
-
-# Temporary files
-*.tmp
-*.log
-*.bak
-*.swp
-
-# vcpkg
-vcpkg_installed/
-
-# debug information files
 *.dwo
 
-# test output & cache
-Testing/
+# ROS runtime data and generated maps
+*.bag
+*.bag.active
+*.db3
+*.mcap
+*.lvx
+*.pcd
+*.ply
+*.bt
+*.ot
+/onion-lo++/results/
+
+# Documentation and presentation media are intentionally not published
+/doc/
+/onion-lo++/include/onion/tbb/
+/onion-lo++/include/onion/.github/
+/onion-lo++/include/onion/.codecov.yml
+*.png
+*.gif
+*.jpg
+*.jpeg
+*.bmp
+*.webp
+*.ico
+
+# Editors and operating-system files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+*.bak
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Python/cache/test files
+__pycache__/
+*.py[cod]
+.pytest_cache/
 .cache/
+Testing/
+vcpkg_installed/
+
+# Logs and crash dumps
+*.log
+*.out
+core
+core.*
