@@ -5,7 +5,7 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /frame_deskewed1/Autocompute Value Bounds1
-        - /local_map1/Autocompute Value Bounds1
+        - /global_map1/Autocompute Value Bounds1
       Splitter Ratio: 0.5
     Tree Height: 1151
   - Class: rviz/Selection
@@ -61,7 +61,7 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
-    - Alpha: 0.10000000149011612
+    - Alpha: 0.8500000238418579
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
         Max Value: 12.838685035705566
@@ -71,21 +71,21 @@ Visualization Manager:
       Channel Name: intensity
       Class: rviz/PointCloud2
       Color: 255; 255; 255
-      Color Transformer: RGB8
-      Decay Time: 1e+07
+      Color Transformer: Intensity
+      Decay Time: 0
       Enabled: true
       Invert Rainbow: true
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
-      Name: local_map
+      Name: global_map
       Position Transformer: XYZ
-      Queue Size: 10
+      Queue Size: 1
       Selectable: true
       Size (Pixels): 1
       Size (m): 0.009999999776482582
       Style: Points
-      Topic: /onion_lo_plus_node/local_map
-      Unreliable: true
+      Topic: /onion_lo_plus_node/global_map
+      Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
@@ -160,7 +160,7 @@ Visualization Manager:
     Background Color: 0; 0; 0
     Default Light: true
     Fixed Frame: odom
-    Frame Rate: 30
+    Frame Rate: 15
   Name: root
   Tools:
     - Class: rviz/Interact
@@ -184,20 +184,20 @@ Visualization Manager:
     Current:
       Class: rviz_animated_view_controller/Animated
       Control Mode: Orbit
-      Distance: 81.69149780273438
+      Distance: 15
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Eye:
-        X: -42.64685821533203
-        Y: 2.385195732116699
-        Z: 15.630223274230957
+        X: -8
+        Y: -8
+        Z: 6
       Focus:
-        X: 36.93894958496094
-        Y: -8.890132904052734
-        Z: 1.0539058446884155
+        X: 0
+        Y: 0
+        Z: 0
       Invert Z Axis: false
       Maintain Vertical Axis: false
       Mouse Enabled: true

@@ -6,6 +6,7 @@
 #include <cstring>
 #include <iomanip>
 #include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <utility>
 
@@ -31,6 +32,18 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   pnh_.param("Map/save_map_on_shutdown", save_map_on_shutdown_, true);
   pnh_.param("Map/map_binary_compressed", map_binary_compressed_, true);
   pnh_.param("Map/global_map_voxel_size", global_map_voxel_size_, 0.10);
+  pnh_.param("Map/publish_global_map", publish_global_map_, true);
+  pnh_.param("Map/global_map_publish_interval",
+             global_map_publish_interval_, 20);
+  pnh_.param("Map/minimum_map_save_points",
+             minimum_map_save_points_, 1000);
+  pnh_.param("Map/reject_line_like_map", reject_line_like_map_, true);
+  pnh_.param("Map/minimum_secondary_extent_ratio",
+             minimum_secondary_extent_ratio_, 0.02);
+  pnh_.param("Map/max_mapping_linear_speed",
+             max_mapping_linear_speed_, 3.0);
+  pnh_.param("Map/max_mapping_angular_speed_deg",
+             max_mapping_angular_speed_deg_, 240.0);
   pnh_.param("Map/child_frame", child_frame_, std::string("base_link"));
   pnh_.param("Map/odom_frame", odom_frame_, std::string("odom"));
   pnh_.param("Map/localization_mode", localization_mode_, false);
@@ -69,6 +82,33 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   pnh_.param("Traj/converge_thresh", config_.converge_thresh, 0.001);
   pnh_.param("Traj/max_iterations", config_.max_iterations, 20);
   pnh_.param("Traj/raw_point_num", config_.raw_point_num, 30000.0);
+  pnh_.param("Traj/max_points_per_voxel",
+             config_.max_points_per_voxel, 80);
+  pnh_.param("Traj/min_registration_inliers",
+             config_.min_registration_inliers, 20);
+
+  if (global_map_voxel_size_ <= 0.0) {
+    throw std::runtime_error(
+        "Map/global_map_voxel_size must be greater than zero");
+  }
+  if (global_map_publish_interval_ <= 0) {
+    throw std::runtime_error(
+        "Map/global_map_publish_interval must be greater than zero");
+  }
+  if (minimum_map_save_points_ <= 0) {
+    throw std::runtime_error(
+        "Map/minimum_map_save_points must be greater than zero");
+  }
+  if (minimum_secondary_extent_ratio_ < 0.0 ||
+      minimum_secondary_extent_ratio_ >= 1.0) {
+    throw std::runtime_error(
+        "Map/minimum_secondary_extent_ratio must be in [0, 1)");
+  }
+  if (max_mapping_linear_speed_ <= 0.0 ||
+      max_mapping_angular_speed_deg_ <= 0.0) {
+    throw std::runtime_error(
+        "Map mapping-speed limits must be greater than zero");
+  }
 
   if (config_.type != "POINTCLOUD2") {
     throw std::runtime_error(
@@ -139,6 +179,10 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   ROS_INFO_STREAM("\033[32mOnion-LO++ initialized in "
                   << (localization_mode_ ? "localization" : "mapping")
                   << " mode; PointCloud2 topic: " << lidar_topic_
+                  << "; registration voxel cap: "
+                  << config_.max_points_per_voxel
+                  << "; persistent map voxel: "
+                  << global_map_voxel_size_ << " m"
                   << "\033[0m");
 }
 
@@ -164,6 +208,15 @@ std::string Onion_LO::ResolveMapPath(
 void Onion_LO::PointCloudCallback(
     const sensor_msgs::PointCloud2::ConstPtr& msg) {
   try {
+    if (!msg->header.frame_id.empty() &&
+        msg->header.frame_id != child_frame_) {
+      ROS_WARN_STREAM_ONCE(
+          "PointCloud2 frame_id is '" << msg->header.frame_id
+          << "' but Map/child_frame is '" << child_frame_
+          << "'. Onion-LO++ treats input points as the tracked child frame "
+             "without applying a TF extrinsic; make these frames identical "
+             "or pre-transform the cloud.");
+    }
     LiDAR_odom(msg);
   } catch (const std::exception& exception) {
     ROS_ERROR_THROTTLE(1.0, "PointCloud2 conversion/odometry failed: %s",
@@ -333,8 +386,21 @@ void Onion_LO::LiDAR_odom(
   trajLOdometry_->deskew_points.clear();
   const Sophus::SE3d new_pose = trajLOdometry_->current_pose;
 
+  bool persistent_map_updated = false;
   if (!localization_mode_ && save_pcd_en_ && !deskew_scan.empty()) {
-    global_map_cache_.AddPoints(deskew_scan);
+    std::string rejection_reason;
+    if (ShouldAccumulateMap(new_pose, output_stamp, &rejection_reason)) {
+      global_map_cache_.AddPoints(deskew_scan);
+      persistent_map_updated = true;
+    } else {
+      ROS_WARN_STREAM_THROTTLE(
+          1.0, "Persistent map skipped current scan: " << rejection_reason);
+    }
+  }
+
+  if (persistent_map_updated && publish_global_map_ &&
+      ((scan_num_ + 1) % global_map_publish_interval_ == 0)) {
+    PublishMappingGlobalMap(output_stamp);
   }
 
   Vector3dVector cloud_xyz;
@@ -437,10 +503,96 @@ void Onion_LO::LiDAR_odom(
   pcl::toROSMsg(*display_cloud, cloud_message);
   cloud_message.header.stamp = output_stamp;
   cloud_message.header.frame_id = odom_frame_;
-  local_map_publisher_.publish(cloud_message);
+  if (local_map_publisher_.getNumSubscribers() > 0) {
+    local_map_publisher_.publish(cloud_message);
+  }
   frame_publisher_.publish(cloud_message);
 
   ++scan_num_;
+}
+
+bool Onion_LO::ShouldAccumulateMap(const Sophus::SE3d& pose,
+                                   const ros::Time& stamp,
+                                   std::string* reason) {
+  if (map_integrity_fault_) {
+    if (reason) {
+      *reason =
+          "map integrity protection is latched; restart mapping after "
+          "checking odometry. First fault: " +
+          map_integrity_fault_reason_;
+    }
+    return false;
+  }
+  if (!pose.matrix().allFinite()) {
+    map_integrity_fault_ = true;
+    map_integrity_fault_reason_ =
+        "odometry pose contains NaN or infinity";
+    if (reason) *reason = map_integrity_fault_reason_;
+    return false;
+  }
+
+  bool motion_is_valid = true;
+  std::string motion_error;
+  if (previous_mapping_pose_valid_) {
+    const double delta_time = (stamp - previous_mapping_stamp_).toSec();
+    if (delta_time <= 1e-6) {
+      motion_is_valid = false;
+      motion_error = "PointCloud2 timestamps are not strictly increasing";
+    } else {
+      const Sophus::SE3d delta = previous_mapping_pose_.inverse() * pose;
+      const double linear_speed = delta.translation().norm() / delta_time;
+      const double angular_speed_deg =
+          delta.so3().log().norm() * 180.0 /
+          3.14159265358979323846 / delta_time;
+      if (!std::isfinite(linear_speed) ||
+          !std::isfinite(angular_speed_deg) ||
+          linear_speed > max_mapping_linear_speed_ ||
+          angular_speed_deg > max_mapping_angular_speed_deg_) {
+        motion_is_valid = false;
+        std::ostringstream stream;
+        stream << std::fixed << std::setprecision(2)
+               << "implausible odometry motion (linear=" << linear_speed
+               << " m/s, angular=" << angular_speed_deg
+               << " deg/s); limits are " << max_mapping_linear_speed_
+               << " m/s and " << max_mapping_angular_speed_deg_ << " deg/s";
+        motion_error = stream.str();
+      }
+    }
+  }
+
+  previous_mapping_pose_ = pose;
+  previous_mapping_stamp_ = stamp;
+  previous_mapping_pose_valid_ = true;
+
+  if (!motion_is_valid) {
+    map_integrity_fault_ = true;
+    map_integrity_fault_reason_ = motion_error;
+    if (reason) *reason = map_integrity_fault_reason_;
+    return false;
+  }
+  if (!trajLOdometry_->IsTrackingHealthy()) {
+    map_integrity_fault_ = true;
+    std::ostringstream stream;
+    stream << "registration inliers "
+           << trajLOdometry_->LastRegistrationInliers()
+           << " are below Traj/min_registration_inliers="
+           << config_.min_registration_inliers;
+    map_integrity_fault_reason_ = stream.str();
+    if (reason) *reason = map_integrity_fault_reason_;
+    return false;
+  }
+  return true;
+}
+
+void Onion_LO::PublishMappingGlobalMap(const ros::Time& stamp) {
+  const auto cloud = global_map_cache_.Snapshot();
+  if (cloud->empty()) return;
+
+  sensor_msgs::PointCloud2 message;
+  pcl::toROSMsg(*cloud, message);
+  message.header.stamp = stamp;
+  message.header.frame_id = odom_frame_;
+  global_map_publisher_.publish(message);
 }
 
 PointCloudXYZRGB::Ptr Onion_LO::convertToPCL(
@@ -491,6 +643,42 @@ bool Onion_LO::SaveGlobalMap(std::string* message) {
     if (message) *message = "Map/save_pcd_en is false";
     return false;
   }
+  if (map_integrity_fault_) {
+    if (message) {
+      *message =
+          "map was not saved because odometry integrity protection was "
+          "triggered: " + map_integrity_fault_reason_ +
+          "; fix the cause and remap";
+    }
+    return false;
+  }
+
+  const auto statistics = global_map_cache_.GetStatistics();
+  if (statistics.point_count <
+      static_cast<std::size_t>(minimum_map_save_points_)) {
+    if (message) {
+      *message = "map has only " + std::to_string(statistics.point_count) +
+                 " points; minimum_map_save_points is " +
+                 std::to_string(minimum_map_save_points_);
+    }
+    return false;
+  }
+  const Eigen::Vector3d extents = statistics.Extents();
+  const double extent_ratio =
+      statistics.SecondaryToPrimaryExtentRatio();
+  if (reject_line_like_map_ && extents.maxCoeff() > 1.0 &&
+      extent_ratio < minimum_secondary_extent_ratio_) {
+    if (message) {
+      std::ostringstream stream;
+      stream << std::fixed << std::setprecision(3)
+             << "map was not saved because its bounds look line-like: "
+             << "extents=(" << extents.x() << ", " << extents.y() << ", "
+             << extents.z() << ") m, secondary/primary=" << extent_ratio
+             << "; check odometry and timestamp configuration";
+      *message = stream.str();
+    }
+    return false;
+  }
 
   const fs::path output_path(map_path_);
   boost::system::error_code error_code;
@@ -513,10 +701,16 @@ bool Onion_LO::SaveGlobalMap(std::string* message) {
   }
 
   if (message) {
-    *message = "saved " + std::to_string(saved_points) +
-               " XYZ/intensity/label points to " + map_path_ +
-               (map_binary_compressed_ ? " (binary_compressed)"
-                                       : " (binary)");
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(3)
+           << "saved " << saved_points
+           << " centroid-filtered XYZ/intensity/label points to "
+           << map_path_
+           << (map_binary_compressed_ ? " (binary_compressed)"
+                                      : " (binary)")
+           << "; extents=(" << extents.x() << ", " << extents.y() << ", "
+           << extents.z() << ") m";
+    *message = stream.str();
   }
   return true;
 }

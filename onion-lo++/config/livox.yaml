@@ -3,7 +3,9 @@ Map:
   pcd_save_en: false
   # Save TUM-style trajectory to results/Onion.txt.
   Save_path: false
-  child_frame: "base_link"
+  # The estimator tracks the LiDAR frame directly. This should match the
+  # PointCloud2 header.frame_id for a handheld MID-360.
+  child_frame: "livox_frame"
   odom_frame: "odom"
 
   # Persistent global PCD map.
@@ -12,7 +14,23 @@ Map:
   save_pcd_en: true
   save_map_on_shutdown: true
   map_binary_compressed: true
+  # Persistent PCD and /global_map use the same centroid voxel cache.
   global_map_voxel_size: 0.10
+  publish_global_map: true
+  # Publishing a full snapshot every frame is expensive. At 10 Hz, 20 means
+  # an exact saved-map preview every two seconds of sensor data.
+  global_map_publish_interval: 20
+
+  # Refuse to overwrite the last good PCD with an empty or obviously broken
+  # map. A line-like rejection normally indicates failed odometry/deskewing.
+  minimum_map_save_points: 1000
+  reject_line_like_map: true
+  minimum_secondary_extent_ratio: 0.02
+
+  # Persistent-map accumulation stops after physically implausible odometry.
+  # These limits are intentionally generous for an indoor handheld MID-360.
+  max_mapping_linear_speed: 3.0          # m/s
+  max_mapping_angular_speed_deg: 240.0   # deg/s
 
   # A loaded map is immutable by default: no point aging and no 300 m pruning.
   update_loaded_map: false
@@ -41,7 +59,13 @@ Traj:
   kinematic_constrain: 2.0
   init_pose_weight: 1000000000.0
   converge_thresh: 0.001
-  max_iterations: 20
-  voxel_size: 1.0
-  raw_point_num: 30000
+  # Indoor defaults: bound registration cost while retaining enough planes.
+  max_iterations: 8
+  voxel_size: 0.5
+  raw_point_num: 18000
+  # Hard cap for the adaptive online registration-map voxel capacity.
+  max_points_per_voxel: 80
+  # Falling below this count latches map-integrity protection and prevents
+  # the current run from overwriting the last known-good PCD.
+  min_registration_inliers: 20
 

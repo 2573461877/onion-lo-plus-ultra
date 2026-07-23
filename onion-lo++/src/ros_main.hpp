@@ -49,6 +49,10 @@ class Onion_LO {
   bool SaveMapService(std_srvs::Trigger::Request& request,
                       std_srvs::Trigger::Response& response);
   bool SaveGlobalMap(std::string* message = nullptr);
+  bool ShouldAccumulateMap(const Sophus::SE3d& pose,
+                           const ros::Time& stamp,
+                           std::string* reason);
+  void PublishMappingGlobalMap(const ros::Time& stamp);
   void InitialPoseCallback(
       const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg);
   void PublishLoadedMap();
@@ -86,8 +90,20 @@ class Onion_LO {
   bool save_map_on_shutdown_ = true;
   bool map_binary_compressed_ = true;
   bool localization_mode_ = false;
+  bool publish_global_map_ = true;
+  bool reject_line_like_map_ = true;
   double global_map_voxel_size_ = 0.10;
+  double minimum_secondary_extent_ratio_ = 0.02;
+  double max_mapping_linear_speed_ = 3.0;
+  double max_mapping_angular_speed_deg_ = 240.0;
+  int global_map_publish_interval_ = 20;
+  int minimum_map_save_points_ = 1000;
   std::size_t path_max_size_ = 5000;
+  bool previous_mapping_pose_valid_ = false;
+  bool map_integrity_fault_ = false;
+  std::string map_integrity_fault_reason_;
+  Sophus::SE3d previous_mapping_pose_;
+  ros::Time previous_mapping_stamp_;
 
   PointCloudXYZ::Ptr complete_map_;
   Save_VoxelHashMap octomap_cache_;

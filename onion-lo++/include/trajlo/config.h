@@ -61,6 +61,13 @@ struct TrajConfig {
   double voxel_size = 1.0;
   double planer_thresh = 0.1;
   double raw_point_num = 30000.0;
+  // Hard upper bound for the adaptive registration-map voxel capacity.
+  // Keeping this independent from loaded_map_max_points_per_voxel prevents
+  // the online mapper from silently growing each voxel to 500 points.
+  int max_points_per_voxel = 80;
+  // A scan is excluded from the persistent map when any optimized segment
+  // has fewer correspondences than this value.
+  int min_registration_inliers = 20;
 
   // MID-360 PointCloud2 input. The official livox_ros_driver2
   // xfer_format=0 path publishes an absolute FLOAT64 timestamp in ns.

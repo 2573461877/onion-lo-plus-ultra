@@ -67,6 +67,10 @@ class TrajLOdometry {
   Sophus::SE3d current_pose;
   std::vector<PointXYZI> deskew_points;
   inline bool IsLocalizationMode() const { return localization_mode_; }
+  inline bool IsTrackingHealthy() const { return tracking_healthy_; }
+  inline double LastRegistrationInliers() const {
+    return last_registration_inliers_;
+  }
  private:
   // 与地图、位姿、缓存相关的成员不变
   MapManager::Ptr map_;
@@ -99,6 +103,8 @@ class TrajLOdometry {
   double init_pose_weight_ = 1e9;
   bool localization_mode_ = false;
   Sophus::SE3d initial_pose_;
+  bool tracking_healthy_ = true;
+  double last_registration_inliers_ = 0.0;
 
   //Onion
   double Resolution_v;

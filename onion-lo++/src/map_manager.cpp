@@ -54,7 +54,6 @@ std::vector<Vector6d> MapManager::DownSampling(
       ds_result.emplace_back(point);
     }
   } else {
-    std::cout << "\033[31m[Degenerate DownSampling]\033[0m" << std::endl;
     tsl::robin_map<Voxel, Vector6d, VoxelHash> grid;
     grid.reserve(points.size());
     double voxel_size;

@@ -1,6 +1,9 @@
 <?xml version="1.0"?>
 <launch>
   <arg name="bagfile" default=""/>
+  <!-- Correctness-first default for offline indoor mapping. Increase only
+       after processing remains below the effective input period. -->
+  <arg name="bag_rate" default="0.05"/>
   <arg name="visualize" default="true"/>
   <arg name="localization_mode" default="false"/>
   <arg name="map_path" default="results/onion_map.pcd"/>
@@ -12,7 +15,10 @@
   </node>
   <!-- Rosbag player, if bagfile argument was specified -->
   <group if="$(eval bagfile != '')">
-    <node pkg="rosbag" type="play" name="player" args="$(arg bagfile)" output="screen"/>
+    <param name="/use_sim_time" value="true"/>
+    <node pkg="rosbag" type="play" name="player"
+          args="--clock --delay=2.0 --rate=$(arg bag_rate) $(arg bagfile)"
+          output="screen" required="true"/>
   </group>
 
   <!-- Visualizer -->

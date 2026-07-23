@@ -40,6 +40,19 @@ TrajLOdometry::TrajLOdometry(const TrajConfig& config)
   RAM_NUM = config.raw_point_num;
   localization_mode_ = config.localization_mode;
 
+  if (!std::isfinite(voxel_size) || voxel_size <= 0.0) {
+    throw std::invalid_argument(
+        "Traj/voxel_size must be greater than zero");
+  }
+  if (config_.max_points_per_voxel <= 0) {
+    throw std::invalid_argument(
+        "Traj/max_points_per_voxel must be greater than zero");
+  }
+  if (config_.min_registration_inliers < 0) {
+    throw std::invalid_argument(
+        "Traj/min_registration_inliers must not be negative");
+  }
+
   Eigen::Vector3d initial_translation = Eigen::Vector3d::Zero();
   Eigen::Matrix3d initial_rotation = Eigen::Matrix3d::Identity();
   if (config.initial_pose.size() == 6) {
@@ -60,7 +73,9 @@ TrajLOdometry::TrajLOdometry(const TrajConfig& config)
   T_prior = Sophus::SE3d();
   
   map_.reset(new MapManager(voxel_size, planer_thresh));
-  map_->max_points_per_voxel_ = config.loaded_map_max_points_per_voxel;
+  map_->max_points_per_voxel_ =
+      localization_mode_ ? config.loaded_map_max_points_per_voxel
+                         : config.max_points_per_voxel;
   if (localization_mode_) {
     std::string map_error;
     if (!map_->LoadGlobalMap(config.map_path, !config.update_loaded_map,
@@ -136,6 +151,9 @@ std::vector<PointXYZIT> ConvertToPoints(const Vector6dVector& vec6d_list) {
 }
 void TrajLOdometry::Start(const Scan::Ptr curr_points) {
   if (!curr_points.get()) return;
+  tracking_healthy_ = true;
+  last_registration_inliers_ = 0.0;
+  bool has_registration_result = false;
   if (first_scan_) {
     last_begin_t_ns_ = curr_points->timestamp;
 
@@ -169,11 +187,21 @@ void TrajLOdometry::Start(const Scan::Ptr curr_points) {
 	curr_points->points.clear();
 	curr_points->points = seg_scan_;
 	curr_points->size = seg_scan_.size();
-	int max_num = static_cast<int>(std::pow(voxel_size / (onion.Onion_Factor / 3.0), 3.0));
-	max_num = std::clamp(max_num, static_cast<int>(40.0*voxel_size), 500);
-	map_->max_points_per_voxel_ = max_num;
-	map_->reg_thresh_ = onion.Onion_Factor;
-	map_->planer_threshold_ = onion.Onion_Factor/5.0;
+  const double safe_onion_factor =
+      std::isfinite(onion.Onion_Factor) && onion.Onion_Factor > 0.0
+          ? onion.Onion_Factor
+          : 1e-3;
+  const double adaptive_capacity =
+      std::pow(voxel_size / (safe_onion_factor / 3.0), 3.0);
+  const int adaptive_max = static_cast<int>(std::clamp(
+      adaptive_capacity, 1.0,
+      static_cast<double>(std::numeric_limits<int>::max())));
+  if (!localization_mode_) {
+    map_->max_points_per_voxel_ =
+        std::min(adaptive_max, config_.max_points_per_voxel);
+  }
+	map_->reg_thresh_ = safe_onion_factor;
+	map_->planer_threshold_ = safe_onion_factor/5.0;
   cout<<"onion.Onion_Factor---"<<onion.Onion_Factor<<endl;
   cout<<"onion.Plane_rotio---"<<onion.Plane_rotio<<endl;
   cout<<"map.max_points_per_voxel_---"<<map_->max_points_per_voxel_<<endl;
@@ -222,9 +250,22 @@ void TrajLOdometry::Start(const Scan::Ptr curr_points) {
       measurements[tp] = measure;
       Sophus::SE3d T_w_pred = frame_poses_[tp.first].getPose() * T_prior;
       frame_poses_[tp.second] = PoseStateWithLin<double>(tp.second, T_w_pred);
-      map_->PreProcess(points, tp, onion.Onion_Factor, Degenerate);
+      map_->PreProcess(points, tp, safe_onion_factor, Degenerate);
       Optimize();
       T_wc_curr = frame_poses_[tp.second].getPose();
+      if (!has_registration_result) {
+        last_registration_inliers_ = measure->lastInliers;
+        has_registration_result = true;
+      } else {
+        last_registration_inliers_ =
+            std::min(last_registration_inliers_, measure->lastInliers);
+      }
+      if (!T_wc_curr.matrix().allFinite() ||
+          !std::isfinite(measure->lastInliers) ||
+          measure->lastInliers <
+              static_cast<double>(config_.min_registration_inliers)) {
+        tracking_healthy_ = false;
+      }
       Sophus::SE3d model_deviation = T_w_pred.inverse() * T_wc_curr;
       T_prior = frame_poses_[tp.first].getPose().inverse() * T_wc_curr;
       Marginalize();
@@ -239,6 +280,9 @@ void TrajLOdometry::Start(const Scan::Ptr curr_points) {
   if (!frame_poses_.empty()) {
     auto iter = std::prev(frame_poses_.end());
     current_pose = iter->second.getPose();
+  }
+  if (!current_pose.matrix().allFinite()) {
+    tracking_healthy_ = false;
   }
 }
 
