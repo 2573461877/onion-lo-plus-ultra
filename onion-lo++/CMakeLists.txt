@@ -115,3 +115,10 @@ target_link_libraries(onion_lo_plus_node
     TBB::tbbmalloc
 )
 
+# Install the offline PointCloud2 continuity checker so it can be invoked as:
+# rosrun onion_lo_plus check_pointcloud_bag.py /path/to/input.bag
+catkin_install_python(
+    PROGRAMS scripts/check_pointcloud_bag.py
+    DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+)
+

@@ -57,6 +57,8 @@ compile_commands.json
 *.bt
 *.ot
 /onion-lo++/results/
+# Diagnostics copied back from deployment devices are local evidence only.
+/linux-diagnostics/
 
 # The Livox ROS Driver 2 source is installed locally on deployment devices.
 /livox_ros_driver2/
