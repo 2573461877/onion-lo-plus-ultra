@@ -30,6 +30,7 @@ SOFTWARE.
 #include <thread>
 #include <iostream>
 #include <iomanip>
+#include <pcl/point_cloud.h>
 #include <tbb/concurrent_queue.h>
 #include <Eigen/Eigen>
 

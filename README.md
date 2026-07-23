@@ -24,20 +24,20 @@ This derivative adds:
 ```bash
 mkdir -p ~/onion_ws/src
 cd ~/onion_ws/src
-git clone --recurse-submodules \
-  https://github.com/2573461877/onion-lo-plus-ultra.git
+git clone https://github.com/2573461877/onion-lo-plus-ultra.git
 ```
 
-If the repository was cloned without submodules:
+Copy Livox ROS Driver 2 into the repository root before building:
 
 ```bash
-git submodule update --init --recursive
+cp -a /path/to/livox_ros_driver2 \
+  ~/onion_ws/src/onion-lo-plus-ultra/
 ```
 
 ## Build
 
-The driver is nested in this repository, so prepare its ROS 1 manifest and
-build from the workspace root:
+Prepare the locally installed driver's ROS 1 manifest and build from the
+workspace root:
 
 ```bash
 cd ~/onion_ws/src/onion-lo-plus-ultra/livox_ros_driver2
@@ -91,7 +91,7 @@ odom -> base_link TF
 Based on [huashu996/Onion-LO-Plus](https://github.com/huashu996/Onion-LO-Plus).
 Original copyright and license notices are retained in the source files.
 
-Livox ROS Driver 2 is referenced as an upstream Git submodule:
-[Livox-SDK/livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2).
+Livox ROS Driver 2 is not included in this repository. Obtain it separately
+from [Livox-SDK/livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2).
 
 The original project also acknowledges KISS-ICP and Traj-LO.

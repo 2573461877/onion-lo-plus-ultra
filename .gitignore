@@ -58,6 +58,9 @@ compile_commands.json
 *.ot
 /onion-lo++/results/
 
+# The Livox ROS Driver 2 source is installed locally on deployment devices.
+/livox_ros_driver2/
+
 # Documentation and presentation media are intentionally not published
 /doc/
 /onion-lo++/include/onion/tbb/

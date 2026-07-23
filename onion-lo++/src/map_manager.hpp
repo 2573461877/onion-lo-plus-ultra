@@ -54,6 +54,8 @@ community.
 #include <tbb/parallel_reduce.h>
 #include <tsl/robin_map.h>
 
+#include <pcl/point_cloud.h>
+
 #include <trajlo/common_type.h>
 #include <trajlo/map_point_type.hpp>
 #include <trajlo/sophus_utils.hpp>
