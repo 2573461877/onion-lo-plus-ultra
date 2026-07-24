@@ -6,7 +6,8 @@ scan-to-map tracking. The first implementation uses the upstream
 
 ## Runtime flow
 
-1. Load the same persistent PCD that Onion uses for local registration.
+1. Load the persistent PCD, or an optional coarse voxelized copy of it, for
+   global feature matching.
 2. Send its XYZ fields to `/hdl_global_localization/set_global_map`.
 3. Query `/hdl_global_localization/query` with a live LiDAR frame.
 4. Validate the best candidate and publish it on the standard
@@ -38,6 +39,17 @@ later tuning.
 ```bash
 roslaunch onion_global_relocalization hdl_onion_relocalization.launch \
   map_path:=/absolute/path/to/onion_map.pcd
+```
+
+For a large dense map, keep `map_path` pointed at the full-resolution map used
+by Onion and pass a separately voxelized copy through `global_map_path`. This
+reduces one-time FPFH map initialization without lowering the local
+scan-to-map resolution:
+
+```bash
+roslaunch onion_global_relocalization hdl_onion_relocalization.launch \
+  map_path:=/absolute/path/to/onion_map.pcd \
+  global_map_path:=/absolute/path/to/onion_map_voxel_2m.pcd
 ```
 
 For the existing diagnostic bag:

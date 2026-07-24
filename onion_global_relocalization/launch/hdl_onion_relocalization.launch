@@ -2,8 +2,11 @@
 <launch>
   <arg name="map_path"
        default="$(find onion_lo_plus)/results/onion_map.pcd"/>
+  <arg name="global_map_path" default="$(arg map_path)"/>
   <arg name="map_frame" default="odom"/>
   <arg name="lidar_topic" default="/livox/lidar"/>
+  <arg name="config_file"
+       default="$(find onion_lo_plus)/config/livox.yaml"/>
   <arg name="global_localization_engine" default="FPFH_RANSAC"/>
   <arg name="auto_relocalize" default="true"/>
   <arg name="max_num_candidates" default="3"/>
@@ -72,7 +75,7 @@
         name="onion_global_relocalization"
         output="screen"
         required="true">
-    <param name="map_path" value="$(arg map_path)"/>
+    <param name="map_path" value="$(arg global_map_path)"/>
     <param name="map_frame" value="$(arg map_frame)"/>
     <param name="lidar_topic" value="$(arg lidar_topic)"/>
     <param name="auto_relocalize" value="$(arg auto_relocalize)"/>
@@ -83,6 +86,7 @@
   </node>
 
   <include file="$(find onion_lo_plus)/launch/livox.launch">
+    <arg name="config_file" value="$(arg config_file)"/>
     <arg name="bagfile" value="$(arg bagfile)"/>
     <arg name="bag_start" value="$(arg bag_start)"/>
     <arg name="bag_delay" value="$(arg bag_delay)"/>

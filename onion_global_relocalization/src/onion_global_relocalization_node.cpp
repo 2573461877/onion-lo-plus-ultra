@@ -178,6 +178,7 @@ class RelocalizationAdapter {
     hdl_global_localization::QueryGlobalLocalization service;
     service.request.max_num_candidates = max_num_candidates_;
     service.request.cloud = *cloud;
+    const ros::WallTime query_started = ros::WallTime::now();
     if (!query_client_.call(service)) {
       HandleFailure("HDL query service returned no solution");
       return;
@@ -187,6 +188,10 @@ class RelocalizationAdapter {
         std::min(service.response.poses.size(),
                  std::min(service.response.inlier_fractions.size(),
                           service.response.errors.size()));
+    const double query_duration_ms =
+        (ros::WallTime::now() - query_started).toSec() * 1000.0;
+    ROS_INFO("HDL query completed in %.3f ms with %zu candidates",
+             query_duration_ms, candidate_count);
     if (candidate_count == 0) {
       HandleFailure("HDL query returned empty candidate arrays");
       return;
