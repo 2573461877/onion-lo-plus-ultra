@@ -49,6 +49,7 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   pnh_.param("Map/child_frame", child_frame_, std::string("base_link"));
   pnh_.param("Map/odom_frame", odom_frame_, std::string("odom"));
   pnh_.param("Map/localization_mode", localization_mode_, false);
+  pnh_.param("Map/wait_for_initial_pose", wait_for_initial_pose_, false);
   pnh_.param("Map/update_loaded_map", config_.update_loaded_map, false);
   pnh_.param("Map/loaded_map_max_points_per_voxel",
              config_.loaded_map_max_points_per_voxel, 150);
@@ -170,9 +171,14 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
 
   config_.localization_mode = localization_mode_;
   config_.map_path = map_path_;
+  initial_pose_received_ = !wait_for_initial_pose_;
   if (localization_mode_ && map_path_.empty()) {
     throw std::runtime_error(
         "Map/localization_mode is true but Map/map_path is empty");
+  }
+  if (wait_for_initial_pose_ && !localization_mode_) {
+    throw std::runtime_error(
+        "Map/wait_for_initial_pose requires Map/localization_mode");
   }
 
   if (!metrics_output_path_.empty()) {
@@ -257,6 +263,8 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
                   << config_.max_points_per_voxel
                   << "; loaded-map voxel cap: "
                   << config_.loaded_map_max_points_per_voxel
+                  << "; waiting for initial pose: "
+                  << (wait_for_initial_pose_ ? "yes" : "no")
                   << "; LiDAR input queue: "
                   << lidar_subscriber_queue_size_
                   << "; publisher queue: "
@@ -287,6 +295,13 @@ std::string Onion_LO::ResolveMapPath(
 
 void Onion_LO::PointCloudCallback(
     const sensor_msgs::PointCloud2::ConstPtr& msg) {
+  if (localization_mode_ && wait_for_initial_pose_ &&
+      !initial_pose_received_) {
+    ROS_INFO_THROTTLE(
+        1.0,
+        "Localization is waiting for /initialpose; LiDAR frame deferred");
+    return;
+  }
   BufferDiagnosticFrame(msg);
   try {
     if (!msg->header.frame_id.empty() &&
@@ -1142,6 +1157,7 @@ void Onion_LO::InitialPoseCallback(
 
   if (trajLOdometry_->SetInitialPose(
           Sophus::SE3d(quaternion.toRotationMatrix(), translation))) {
+    initial_pose_received_ = true;
     path_msg_.poses.clear();
     metrics_timing_initialized_ = false;
     ++metrics_reset_id_;

@@ -96,6 +96,8 @@ class Onion_LO {
   bool save_map_on_shutdown_ = true;
   bool map_binary_compressed_ = true;
   bool localization_mode_ = false;
+  bool wait_for_initial_pose_ = false;
+  bool initial_pose_received_ = true;
   bool publish_global_map_ = true;
   bool reject_line_like_map_ = true;
   double global_map_voxel_size_ = 0.10;

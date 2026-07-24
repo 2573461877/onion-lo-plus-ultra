@@ -10,6 +10,10 @@ Map:
 
   # Persistent global PCD map.
   localization_mode: false
+  # When true, incoming scans are deferred until a global initializer or RViz
+  # publishes a valid /initialpose. This prevents local registration from
+  # failing around the identity pose while global relocalization is running.
+  wait_for_initial_pose: false
   map_path: "results/onion_map.pcd"       # relative paths use the package root
   save_pcd_en: true
   save_map_on_shutdown: true
