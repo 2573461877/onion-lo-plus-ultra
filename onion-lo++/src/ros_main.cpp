@@ -24,6 +24,59 @@ T ReadUnalignedField(const std::uint8_t* point_data,
   return value;
 }
 
+std::size_t PointFieldDatatypeSize(std::uint8_t datatype) {
+  switch (datatype) {
+    case sensor_msgs::PointField::INT8:
+    case sensor_msgs::PointField::UINT8:
+      return 1;
+    case sensor_msgs::PointField::INT16:
+    case sensor_msgs::PointField::UINT16:
+      return 2;
+    case sensor_msgs::PointField::INT32:
+    case sensor_msgs::PointField::UINT32:
+    case sensor_msgs::PointField::FLOAT32:
+      return 4;
+    case sensor_msgs::PointField::FLOAT64:
+      return 8;
+    default:
+      return 0;
+  }
+}
+
+bool NumericPointFieldFits(const sensor_msgs::PointField* field,
+                           std::size_t point_step) {
+  if (!field || field->count < 1) return false;
+  const std::size_t datatype_size =
+      PointFieldDatatypeSize(field->datatype);
+  return datatype_size > 0 &&
+         static_cast<std::size_t>(field->offset) + datatype_size <=
+             point_step;
+}
+
+double ReadNumericPointField(const std::uint8_t* point_data,
+                             const sensor_msgs::PointField& field) {
+  switch (field.datatype) {
+    case sensor_msgs::PointField::INT8:
+      return ReadUnalignedField<std::int8_t>(point_data, field.offset);
+    case sensor_msgs::PointField::UINT8:
+      return ReadUnalignedField<std::uint8_t>(point_data, field.offset);
+    case sensor_msgs::PointField::INT16:
+      return ReadUnalignedField<std::int16_t>(point_data, field.offset);
+    case sensor_msgs::PointField::UINT16:
+      return ReadUnalignedField<std::uint16_t>(point_data, field.offset);
+    case sensor_msgs::PointField::INT32:
+      return ReadUnalignedField<std::int32_t>(point_data, field.offset);
+    case sensor_msgs::PointField::UINT32:
+      return ReadUnalignedField<std::uint32_t>(point_data, field.offset);
+    case sensor_msgs::PointField::FLOAT32:
+      return ReadUnalignedField<float>(point_data, field.offset);
+    case sensor_msgs::PointField::FLOAT64:
+      return ReadUnalignedField<double>(point_data, field.offset);
+    default:
+      throw std::runtime_error("unsupported PointCloud2 numeric datatype");
+  }
+}
+
 }  // namespace
 
 Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
@@ -74,6 +127,10 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   pnh_.param("Onion/point_time_field", config_.point_time_field,
              std::string("timestamp"));
   pnh_.param("Onion/point_time_scale", config_.point_time_scale, 1e-9);
+  pnh_.param("Onion/point_time_secondary_field",
+             config_.point_time_secondary_field, std::string());
+  pnh_.param("Onion/point_time_secondary_scale",
+             config_.point_time_secondary_scale, 1.0);
   pnh_.param("Onion/point_time_is_offset",
              config_.point_time_is_offset, false);
   pnh_.param("Onion/exp_key_num", config_.exp_key_num, 3000);
@@ -370,11 +427,16 @@ void Onion_LO::DumpTrackingFailure(
   const sensor_msgs::PointField* diagnostic_y = nullptr;
   const sensor_msgs::PointField* diagnostic_z = nullptr;
   const sensor_msgs::PointField* diagnostic_time = nullptr;
+  const sensor_msgs::PointField* diagnostic_secondary_time = nullptr;
   for (const auto& field : message.fields) {
     if (field.name == "x") diagnostic_x = &field;
     if (field.name == "y") diagnostic_y = &field;
     if (field.name == "z") diagnostic_z = &field;
     if (field.name == config_.point_time_field) diagnostic_time = &field;
+    if (!config_.point_time_secondary_field.empty() &&
+        field.name == config_.point_time_secondary_field) {
+      diagnostic_secondary_time = &field;
+    }
   }
   Eigen::Vector3d raw_minimum =
       Eigen::Vector3d::Constant(std::numeric_limits<double>::infinity());
@@ -390,11 +452,13 @@ void Onion_LO::DumpTrackingFailure(
       diagnostic_x->datatype == sensor_msgs::PointField::FLOAT32 &&
       diagnostic_y->datatype == sensor_msgs::PointField::FLOAT32 &&
       diagnostic_z->datatype == sensor_msgs::PointField::FLOAT32 &&
-      diagnostic_time->datatype == sensor_msgs::PointField::FLOAT64 &&
       diagnostic_x->offset + sizeof(float) <= message.point_step &&
       diagnostic_y->offset + sizeof(float) <= message.point_step &&
       diagnostic_z->offset + sizeof(float) <= message.point_step &&
-      diagnostic_time->offset + sizeof(double) <= message.point_step &&
+      NumericPointFieldFits(diagnostic_time, message.point_step) &&
+      (config_.point_time_secondary_field.empty() ||
+       NumericPointFieldFits(diagnostic_secondary_time,
+                             message.point_step)) &&
       message.row_step >= message.width * message.point_step &&
       message.data.size() >=
           static_cast<std::size_t>(message.row_step) * message.height;
@@ -414,12 +478,16 @@ void Onion_LO::DumpTrackingFailure(
             ReadUnalignedField<float>(point_data, diagnostic_y->offset);
         const float z =
             ReadUnalignedField<float>(point_data, diagnostic_z->offset);
-        const double raw_time = ReadUnalignedField<double>(
-            point_data, diagnostic_time->offset);
-        const double scaled_time =
-            config_.point_time_is_offset
-                ? header_time + raw_time * config_.point_time_scale
-                : raw_time * config_.point_time_scale;
+        double scaled_time =
+            ReadNumericPointField(point_data, *diagnostic_time) *
+            config_.point_time_scale;
+        if (diagnostic_secondary_time) {
+          scaled_time +=
+              ReadNumericPointField(point_data,
+                                    *diagnostic_secondary_time) *
+              config_.point_time_secondary_scale;
+        }
+        if (config_.point_time_is_offset) scaled_time += header_time;
         if (!std::isfinite(x) || !std::isfinite(y) ||
             !std::isfinite(z) || !std::isfinite(scaled_time)) {
           continue;
@@ -525,6 +593,10 @@ void Onion_LO::DumpTrackingFailure(
   report << "point_fields_end\n"
          << "point_time_field=" << config_.point_time_field << "\n"
          << "point_time_scale=" << config_.point_time_scale << "\n"
+         << "point_time_secondary_field="
+         << config_.point_time_secondary_field << "\n"
+         << "point_time_secondary_scale="
+         << config_.point_time_secondary_scale << "\n"
          << "point_time_is_offset="
          << (config_.point_time_is_offset ? "true" : "false") << "\n"
          << "voxel_size=" << config_.voxel_size << "\n"
@@ -621,12 +693,17 @@ traj::Scan::Ptr Onion_LO::Msg2Scan(const sensor_msgs::PointCloud2& msg) {
   const sensor_msgs::PointField* field_z = nullptr;
   const sensor_msgs::PointField* field_intensity = nullptr;
   const sensor_msgs::PointField* field_time = nullptr;
+  const sensor_msgs::PointField* field_secondary_time = nullptr;
   for (const auto& field : msg.fields) {
     if (field.name == "x") field_x = &field;
     if (field.name == "y") field_y = &field;
     if (field.name == "z") field_z = &field;
     if (field.name == "intensity") field_intensity = &field;
     if (field.name == config_.point_time_field) field_time = &field;
+    if (!config_.point_time_secondary_field.empty() &&
+        field.name == config_.point_time_secondary_field) {
+      field_secondary_time = &field;
+    }
   }
 
   const auto validate_field =
@@ -656,16 +733,39 @@ traj::Scan::Ptr Onion_LO::Msg2Scan(const sensor_msgs::PointCloud2& msg) {
     throw std::runtime_error("PointCloud2 has no '" +
                              config_.point_time_field + "' field");
   }
-  validate_field(field_time, config_.point_time_field,
-                 sensor_msgs::PointField::FLOAT64, sizeof(double));
+  if (!NumericPointFieldFits(field_time, msg.point_step)) {
+    throw std::runtime_error(
+        "PointCloud2 field '" + config_.point_time_field +
+        "' is not a supported scalar numeric field");
+  }
+  if (!config_.point_time_secondary_field.empty() &&
+      !NumericPointFieldFits(field_secondary_time, msg.point_step)) {
+    throw std::runtime_error(
+        "PointCloud2 has no supported scalar numeric secondary time field '" +
+        config_.point_time_secondary_field + "'");
+  }
   if (field_intensity) {
-    validate_field(field_intensity, "intensity",
-                   sensor_msgs::PointField::FLOAT32, sizeof(float));
+    if (!NumericPointFieldFits(field_intensity, msg.point_step)) {
+      throw std::runtime_error(
+          "PointCloud2 field 'intensity' is not a supported scalar "
+          "numeric field");
+    }
   }
 
   if (!std::isfinite(config_.point_time_scale) ||
       config_.point_time_scale <= 0.0) {
     throw std::runtime_error("Onion/point_time_scale must be positive");
+  }
+  if (!config_.point_time_secondary_field.empty() &&
+      (!std::isfinite(config_.point_time_secondary_scale) ||
+       config_.point_time_secondary_scale <= 0.0)) {
+    throw std::runtime_error(
+        "Onion/point_time_secondary_scale must be positive");
+  }
+  if (!config_.point_time_secondary_field.empty() &&
+      config_.point_time_secondary_field == config_.point_time_field) {
+    throw std::runtime_error(
+        "Onion primary and secondary point time fields must differ");
   }
 
   const double header_time = msg.header.stamp.toSec();
@@ -684,16 +784,21 @@ traj::Scan::Ptr Onion_LO::Msg2Scan(const sensor_msgs::PointCloud2& msg) {
       point.x = ReadUnalignedField<float>(point_data, field_x->offset);
       point.y = ReadUnalignedField<float>(point_data, field_y->offset);
       point.z = ReadUnalignedField<float>(point_data, field_z->offset);
-      const double raw_time =
-          ReadUnalignedField<double>(point_data, field_time->offset);
-      const double scaled_time = raw_time * config_.point_time_scale;
-      point.ts = config_.point_time_is_offset
-                     ? header_time + scaled_time
-                     : scaled_time;
+      double scaled_time =
+          ReadNumericPointField(point_data, *field_time) *
+          config_.point_time_scale;
+      if (field_secondary_time) {
+        scaled_time +=
+            ReadNumericPointField(point_data, *field_secondary_time) *
+            config_.point_time_secondary_scale;
+      }
+      point.ts =
+          config_.point_time_is_offset ? header_time + scaled_time
+                                       : scaled_time;
       point.label = 0.0;
       if (field_intensity) {
-        point.intensity =
-            ReadUnalignedField<float>(point_data, field_intensity->offset);
+        point.intensity = static_cast<float>(
+            ReadNumericPointField(point_data, *field_intensity));
         if (!std::isfinite(point.intensity)) point.intensity = 0.0F;
       }
 
@@ -728,8 +833,14 @@ traj::Scan::Ptr Onion_LO::Msg2Scan(const sensor_msgs::PointCloud2& msg) {
   }
 
   ROS_INFO_STREAM_ONCE(
-      "MID-360 PointCloud2 adapter verified: point_step=" << msg.point_step
+      "PointCloud2 time adapter verified: point_step=" << msg.point_step
       << ", timestamp_offset=" << field_time->offset
+      << ", timestamp_datatype="
+      << static_cast<int>(field_time->datatype)
+      << ", secondary_timestamp_offset="
+      << (field_secondary_time
+              ? std::to_string(field_secondary_time->offset)
+              : std::string("none"))
       << ", timestamp_mode="
       << (config_.point_time_is_offset ? "offset" : "absolute")
       << ", first_to_header_ms="

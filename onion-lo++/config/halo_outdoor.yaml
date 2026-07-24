@@ -1,0 +1,82 @@
+Map:
+  # Halo's published frame in tanwei_tw360.bag.
+  child_frame: "rslidar_top"
+  odom_frame: "odom"
+
+  pcd_save_en: false
+  Save_path: false
+  localization_mode: false
+  wait_for_initial_pose: false
+  map_path: "results/tanwei_tw360_halo_outdoor_map.pcd"
+  save_pcd_en: true
+  save_map_on_shutdown: true
+  map_binary_compressed: true
+
+  # Halo measures to 70 m at 2 cm nominal accuracy. A 0.20 m persistent-map
+  # voxel preserves outdoor structures while limiting long-range map growth.
+  global_map_voxel_size: 0.20
+  publish_global_map: true
+  # At 10 Hz this publishes a full preview every five seconds of sensor time.
+  global_map_publish_interval: 50
+  minimum_map_save_points: 1000
+  reject_line_like_map: true
+  minimum_secondary_extent_ratio: 0.02
+
+  # Vehicle-oriented sanity limits. Registration still applies stricter
+  # per-iteration optimizer safeguards below.
+  max_mapping_linear_speed: 12.0
+  max_mapping_angular_speed_deg: 180.0
+
+  update_loaded_map: false
+  loaded_map_max_points_per_voxel: 150
+  initial_pose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  path_max_size: 5000
+
+Onion:
+  lidar_topic: "/fusion_rslidar_points"
+  lidar_subscriber_queue_size: 30
+  publisher_queue_size: 5
+  lidar_type: "POINTCLOUD2"
+
+  # The recorded Tanway driver splits each absolute point timestamp into
+  # uint32 seconds and uint32 microseconds. This is different from the
+  # manual's newer uint32 offset_time SDK layout.
+  point_time_field: "t_sec"
+  point_time_scale: 1.0
+  point_time_secondary_field: "t_usec"
+  point_time_secondary_scale: 1.0e-6
+  point_time_is_offset: false
+
+  exp_key_num: 3000
+  # Match Halo's native angular sampling from the V0.3 product manual.
+  Resolution_h: 0.36
+  Resolution_v: 1.04
+
+Traj:
+  init_interval: 200
+  # Halo is a 10 Hz spinning LiDAR. Register one complete 360-degree sweep
+  # instead of the 20 ms solid-state-LiDAR window, which would expose only a
+  # 72-degree sector and can be underconstrained outdoors.
+  seg_interval: 100
+  seg_num: 3
+  kinematic_constrain: 2.0
+  init_pose_weight: 1000000000.0
+  converge_thresh: 0.001
+  max_iterations: 8
+  voxel_size: 1.0
+  # The bag contains 46,992-48,288 points per 10 Hz frame.
+  raw_point_num: 48000
+  max_points_per_voxel: 150
+  min_registration_inliers: 20
+  optimizer_damping: 1.0e-6
+  max_optimizer_translation_increment: 0.50
+  max_optimizer_rotation_increment_deg: 20.0
+  max_optimizer_translation_deviation: 1.0
+  max_optimizer_rotation_deviation_deg: 30.0
+
+Diagnostics:
+  enabled: true
+  stop_on_tracking_failure: true
+  context_frames: 20
+  output_directory: "results/diagnostics/halo_outdoor"
+  metrics_output_path: ""

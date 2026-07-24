@@ -75,10 +75,14 @@ struct TrajConfig {
   double max_optimizer_translation_deviation = 1.0;
   double max_optimizer_rotation_deviation_deg = 30.0;
 
-  // MID-360 PointCloud2 input. The official livox_ros_driver2
-  // xfer_format=0 path publishes an absolute FLOAT64 timestamp in ns.
+  // PointCloud2 per-point time. A secondary field supports drivers which
+  // split absolute time into integer seconds and fractional sub-seconds.
+  // The official livox_ros_driver2 xfer_format=0 path uses a single absolute
+  // FLOAT64 timestamp in ns, so the defaults remain backward compatible.
   std::string point_time_field = "timestamp";
   double point_time_scale = 1e-9;
+  std::string point_time_secondary_field;
+  double point_time_secondary_scale = 1.0;
   bool point_time_is_offset = false;
 
   // Persistent-map / localization mode.

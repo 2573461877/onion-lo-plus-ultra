@@ -6,6 +6,8 @@
   <!-- Correctness-first default for offline indoor mapping. Increase only
        after processing remains below the effective input period. -->
   <arg name="bag_rate" default="0.05"/>
+  <arg name="config_file"
+       default="$(find onion_lo_plus)/config/livox.yaml"/>
   <arg name="visualize" default="true"/>
   <arg name="localization_mode" default="false"/>
   <arg name="wait_for_initial_pose" default="false"/>
@@ -24,7 +26,7 @@
   <!-- Odometry node -->
   <node pkg="onion_lo_plus" type="onion_lo_plus_node"
         name="onion_lo_plus_node" output="screen" required="true">
-  	 <rosparam command="load" file="$(find onion_lo_plus)/config/livox.yaml" />
+    <rosparam command="load" file="$(arg config_file)" />
      <param name="Map/localization_mode" value="$(arg localization_mode)"/>
      <param name="Map/wait_for_initial_pose"
             value="$(arg wait_for_initial_pose)"/>

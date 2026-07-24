@@ -10,12 +10,35 @@ import time
 from pathlib import Path
 
 
+def read_parent_pid(pid):
+    try:
+        for line in Path(f"/proc/{pid}/status").read_text(
+                encoding="utf-8").splitlines():
+            if line.startswith("PPid:"):
+                return int(line.split()[1])
+    except (FileNotFoundError, PermissionError, ProcessLookupError,
+            ValueError):
+        return 0
+    return 0
+
+
+def ancestor_pids():
+    ancestors = set()
+    pid = os.getppid()
+    while pid > 1 and pid not in ancestors:
+        ancestors.add(pid)
+        pid = read_parent_pid(pid)
+    return ancestors
+
+
 def find_pid(pattern):
     own_pid = os.getpid()
+    excluded_pids = ancestor_pids()
+    excluded_pids.add(own_pid)
     candidates = []
     for entry in glob.glob("/proc/[0-9]*/cmdline"):
         pid = int(entry.split("/")[2])
-        if pid == own_pid:
+        if pid in excluded_pids:
             continue
         try:
             command = Path(entry).read_bytes().replace(b"\0", b" ").decode(
