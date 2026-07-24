@@ -51,7 +51,7 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   pnh_.param("Map/localization_mode", localization_mode_, false);
   pnh_.param("Map/update_loaded_map", config_.update_loaded_map, false);
   pnh_.param("Map/loaded_map_max_points_per_voxel",
-             config_.loaded_map_max_points_per_voxel, 0);
+             config_.loaded_map_max_points_per_voxel, 150);
 
   int path_max_size = 5000;
   pnh_.param("Map/path_max_size", path_max_size, 5000);
@@ -114,6 +114,10 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
              std::string("results/diagnostics"));
   diagnostic_output_directory_ =
       ResolveMapPath(configured_diagnostic_directory);
+  std::string configured_metrics_path;
+  pnh_.param("Diagnostics/metrics_output_path",
+             configured_metrics_path, std::string());
+  metrics_output_path_ = ResolveMapPath(configured_metrics_path);
 
   if (global_map_voxel_size_ <= 0.0) {
     throw std::runtime_error(
@@ -171,6 +175,31 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
         "Map/localization_mode is true but Map/map_path is empty");
   }
 
+  if (!metrics_output_path_.empty()) {
+    const fs::path metrics_path(metrics_output_path_);
+    boost::system::error_code directory_error;
+    if (!metrics_path.parent_path().empty()) {
+      fs::create_directories(metrics_path.parent_path(), directory_error);
+    }
+    if (directory_error) {
+      throw std::runtime_error(
+          "failed to create metrics output directory: " +
+          directory_error.message());
+    }
+    metrics_output_.open(metrics_output_path_,
+                         std::ios::out | std::ios::trunc);
+    if (!metrics_output_.is_open()) {
+      throw std::runtime_error(
+          "failed to open metrics output path: " +
+          metrics_output_path_);
+    }
+    metrics_output_
+        << "reset_id,scan_index,stamp_sec,sensor_elapsed_sec,"
+           "wall_elapsed_sec,input_delta_ms,processing_ms,"
+           "average_processing_ms,min_registration_inliers,"
+           "map_points,map_voxels,x,y,z,qx,qy,qz,qw\n";
+  }
+
   global_map_cache_.Configure(global_map_voxel_size_);
   complete_map_.reset(new PointCloudXYZ());
   octomap_cache_.voxel_size_ = 2.0;
@@ -206,7 +235,9 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   if (localization_mode_) {
     initial_pose_subscriber_ =
         nh_.subscribe("/initialpose", 1, &Onion_LO::InitialPoseCallback, this);
-    PublishLoadedMap();
+    if (publish_global_map_) {
+      PublishLoadedMap();
+    }
   }
 
   if (child_frame_ != "base_link") {
@@ -224,6 +255,8 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
                   << " mode; PointCloud2 topic: " << lidar_topic_
                   << "; registration voxel cap: "
                   << config_.max_points_per_voxel
+                  << "; loaded-map voxel cap: "
+                  << config_.loaded_map_max_points_per_voxel
                   << "; LiDAR input queue: "
                   << lidar_subscriber_queue_size_
                   << "; publisher queue: "
@@ -770,6 +803,44 @@ void Onion_LO::LiDAR_odom(
   const Eigen::Vector3d translation = new_pose.translation();
   const Eigen::Quaterniond quaternion = new_pose.unit_quaternion();
 
+  if (metrics_output_.is_open()) {
+    const double wall_now_sec = ros::WallTime::now().toSec();
+    if (!metrics_timing_initialized_) {
+      metrics_timing_initialized_ = true;
+      metrics_wall_start_sec_ = wall_now_sec;
+      metrics_first_stamp_ = output_stamp;
+      metrics_previous_stamp_ = output_stamp;
+    }
+    const double input_delta_ms =
+        (output_stamp - metrics_previous_stamp_).toSec() * 1e3;
+    const double sensor_elapsed_sec =
+        (output_stamp - metrics_first_stamp_).toSec();
+    const double wall_elapsed_sec =
+        wall_now_sec - metrics_wall_start_sec_;
+    metrics_output_
+        << metrics_reset_id_ << ","
+        << scan_num_ << ","
+        << std::fixed << std::setprecision(9)
+        << output_stamp.toSec() << ","
+        << sensor_elapsed_sec << ","
+        << wall_elapsed_sec << ","
+        << input_delta_ms << ","
+        << duration_ms << ","
+        << average_ms << ","
+        << trajLOdometry_->LastRegistrationInliers() << ","
+        << trajLOdometry_->RegistrationMapPointCount() << ","
+        << trajLOdometry_->RegistrationMapVoxelCount() << ","
+        << translation.x() << ","
+        << translation.y() << ","
+        << translation.z() << ","
+        << quaternion.x() << ","
+        << quaternion.y() << ","
+        << quaternion.z() << ","
+        << quaternion.w() << "\n";
+    metrics_output_.flush();
+    metrics_previous_stamp_ = output_stamp;
+  }
+
   geometry_msgs::TransformStamped transform;
   transform.header.stamp = output_stamp;
   transform.header.frame_id = odom_frame_;
@@ -1072,6 +1143,8 @@ void Onion_LO::InitialPoseCallback(
   if (trajLOdometry_->SetInitialPose(
           Sophus::SE3d(quaternion.toRotationMatrix(), translation))) {
     path_msg_.poses.clear();
+    metrics_timing_initialized_ = false;
+    ++metrics_reset_id_;
     ROS_INFO("Localization state reset from /initialpose");
   } else {
     ROS_WARN("/initialpose is only accepted in localization mode");

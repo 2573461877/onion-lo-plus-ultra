@@ -34,8 +34,10 @@ Map:
 
   # A loaded map is immutable by default: no point aging and no 300 m pruning.
   update_loaded_map: false
-  # 0 keeps all finite PCD points. Use a positive cap only to reduce RAM.
-  loaded_map_max_points_per_voxel: 0
+  # 150 is the validated MID-360 localization balance between local geometry
+  # and real-time cost. Set 0 only when full map fidelity is more important
+  # than bounded registration time and RAM.
+  loaded_map_max_points_per_voxel: 150
 
   # Localization initial guess: [x, y, z, roll, pitch, yaw], radians.
   # It can also be reset online from RViz /initialpose.
@@ -88,4 +90,7 @@ Diagnostics:
   # At 10 Hz this preserves approximately two seconds before the first fault.
   context_frames: 20
   output_directory: "results/diagnostics"
+  # Optional per-callback CSV for repeatable mapping/localization evaluation.
+  # Keep empty during normal operation and set a unique path for each test.
+  metrics_output_path: ""
 

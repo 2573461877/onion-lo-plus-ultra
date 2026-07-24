@@ -85,9 +85,9 @@ struct TrajConfig {
   bool localization_mode = false;
   bool update_loaded_map = false;
   std::string map_path;
-  // 0 keeps every finite point from the PCD. A positive value is an optional
-  // load-time cap and therefore intentionally trades map fidelity for memory.
-  int loaded_map_max_points_per_voxel = 0;
+  // The validated localization default bounds neighbor-search cost while
+  // retaining enough local geometry. Set 0 to keep every finite PCD point.
+  int loaded_map_max_points_per_voxel = 150;
   std::vector<double> initial_pose{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   
 };

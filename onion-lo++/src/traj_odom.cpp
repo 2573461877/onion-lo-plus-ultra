@@ -96,13 +96,20 @@ TrajLOdometry::TrajLOdometry(const TrajConfig& config)
       localization_mode_ ? config.loaded_map_max_points_per_voxel
                          : config.max_points_per_voxel;
   if (localization_mode_) {
+    const auto map_load_begin = std::chrono::steady_clock::now();
     std::string map_error;
     if (!map_->LoadGlobalMap(config.map_path, !config.update_loaded_map,
                              &map_error)) {
       throw std::runtime_error(map_error);
     }
+    const double map_load_ms =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - map_load_begin).count();
     std::cout << "\033[32m[Localization] Loaded " << map_->MapPointCount()
-              << " map points from " << config.map_path
+              << " map points in " << map_->MapVoxelCount()
+              << " registration voxels from " << config.map_path
+              << " in " << std::fixed << std::setprecision(3)
+              << map_load_ms << " ms"
               << (map_->HasMapLabels() ? " (with Onion labels)"
                                        : " (geometry-only map)")
               << "\033[0m" << std::endl;

@@ -1,24 +1,45 @@
 <?xml version="1.0"?>
 <launch>
   <arg name="bagfile" default=""/>
+  <arg name="bag_start" default="0.0"/>
   <!-- Correctness-first default for offline indoor mapping. Increase only
        after processing remains below the effective input period. -->
   <arg name="bag_rate" default="0.05"/>
   <arg name="visualize" default="true"/>
   <arg name="localization_mode" default="false"/>
   <arg name="map_path" default="results/onion_map.pcd"/>
+  <arg name="loaded_map_max_points_per_voxel" default="150"/>
+  <arg name="publish_global_map" default="true"/>
+  <arg name="save_map_on_shutdown" default="true"/>
+  <arg name="initial_x" default="0.0"/>
+  <arg name="initial_y" default="0.0"/>
+  <arg name="initial_z" default="0.0"/>
+  <arg name="initial_roll" default="0.0"/>
+  <arg name="initial_pitch" default="0.0"/>
+  <arg name="initial_yaw" default="0.0"/>
+  <arg name="metrics_output_path" default=""/>
+  <arg name="diagnostic_output_directory" default="results/diagnostics"/>
   <!-- Odometry node -->
   <node pkg="onion_lo_plus" type="onion_lo_plus_node"
         name="onion_lo_plus_node" output="screen" required="true">
   	 <rosparam command="load" file="$(find onion_lo_plus)/config/livox.yaml" />
      <param name="Map/localization_mode" value="$(arg localization_mode)"/>
      <param name="Map/map_path" value="$(arg map_path)"/>
+     <param name="Map/loaded_map_max_points_per_voxel"
+            value="$(arg loaded_map_max_points_per_voxel)"/>
+     <param name="Map/publish_global_map" value="$(arg publish_global_map)"/>
+     <param name="Map/save_map_on_shutdown" value="$(arg save_map_on_shutdown)"/>
+     <rosparam param="Map/initial_pose" subst_value="true">[$(arg initial_x), $(arg initial_y), $(arg initial_z), $(arg initial_roll), $(arg initial_pitch), $(arg initial_yaw)]</rosparam>
+     <param name="Diagnostics/metrics_output_path"
+            value="$(arg metrics_output_path)"/>
+     <param name="Diagnostics/output_directory"
+            value="$(arg diagnostic_output_directory)"/>
   </node>
   <!-- Rosbag player, if bagfile argument was specified -->
   <group if="$(eval bagfile != '')">
     <param name="/use_sim_time" value="true"/>
     <node pkg="rosbag" type="play" name="player"
-          args="--clock --delay=2.0 --rate=$(arg bag_rate) $(arg bagfile)"
+          args="--clock --delay=2.0 --start=$(arg bag_start) --rate=$(arg bag_rate) $(arg bagfile)"
           output="screen" required="true"/>
   </group>
 

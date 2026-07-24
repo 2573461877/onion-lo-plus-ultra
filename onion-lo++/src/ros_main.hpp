@@ -113,6 +113,13 @@ class Onion_LO {
   bool diagnostic_failure_dumped_ = false;
   int diagnostic_context_frames_ = 20;
   std::string diagnostic_output_directory_;
+  std::string metrics_output_path_;
+  std::ofstream metrics_output_;
+  bool metrics_timing_initialized_ = false;
+  int metrics_reset_id_ = 0;
+  double metrics_wall_start_sec_ = 0.0;
+  ros::Time metrics_first_stamp_;
+  ros::Time metrics_previous_stamp_;
   std::deque<sensor_msgs::PointCloud2> diagnostic_cloud_buffer_;
   Sophus::SE3d previous_mapping_pose_;
   ros::Time previous_mapping_stamp_;

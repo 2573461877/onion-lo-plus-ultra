@@ -118,7 +118,11 @@ target_link_libraries(onion_lo_plus_node
 # Install the offline PointCloud2 continuity checker so it can be invoked as:
 # rosrun onion_lo_plus check_pointcloud_bag.py /path/to/input.bag
 catkin_install_python(
-    PROGRAMS scripts/check_pointcloud_bag.py
+    PROGRAMS
+      scripts/analyze_localization_metrics.py
+      scripts/check_pointcloud_bag.py
+      scripts/monitor_process_resources.py
+      scripts/replicate_ascii_pcd.py
     DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

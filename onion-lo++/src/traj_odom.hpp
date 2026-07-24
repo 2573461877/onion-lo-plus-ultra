@@ -73,6 +73,12 @@ class TrajLOdometry {
   inline double LastRegistrationInliers() const {
     return last_registration_inliers_;
   }
+  inline std::size_t RegistrationMapPointCount() const {
+    return map_->MapPointCount();
+  }
+  inline std::size_t RegistrationMapVoxelCount() const {
+    return map_->MapVoxelCount();
+  }
   inline const std::string& LastFailureReason() const {
     return failure_reason_;
   }
