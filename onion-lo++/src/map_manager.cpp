@@ -27,6 +27,8 @@ SOFTWARE.
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
+#include <map>
 
 #include <pcl/PCLPointCloud2.h>
 #include <pcl/conversions.h>
@@ -34,6 +36,100 @@ SOFTWARE.
 
 using namespace std;
 namespace traj {
+namespace {
+
+MapManager::Voxel PointToVoxel(const Eigen::Vector3d &point,
+                               double voxel_size) {
+  return MapManager::Voxel(
+      static_cast<int>(std::floor(point.x() / voxel_size)),
+      static_cast<int>(std::floor(point.y() / voxel_size)),
+      static_cast<int>(std::floor(point.z() / voxel_size)));
+}
+
+bool PointLess(const Vector6d &lhs, const Vector6d &rhs) {
+  constexpr std::array<int, 6> order{{5, 0, 1, 2, 4, 3}};
+  for (const int index : order) {
+    if (lhs[index] < rhs[index]) return true;
+    if (rhs[index] < lhs[index]) return false;
+  }
+  return false;
+}
+
+std::vector<Vector6d> SelectRepresentativePoints(
+    std::vector<Vector6d> points, int max_points,
+    const MapManager::Voxel &voxel, double voxel_size) {
+  if (max_points <= 0 ||
+      points.size() <= static_cast<std::size_t>(max_points)) {
+    return points;
+  }
+
+  // Make the result independent of the point ordering in the PCD file.
+  std::sort(points.begin(), points.end(), PointLess);
+
+  const std::size_t target_size = static_cast<std::size_t>(max_points);
+  const Eigen::Vector3d voxel_center =
+      (voxel.cast<double>() + Eigen::Vector3d::Constant(0.5)) * voxel_size;
+  std::vector<bool> selected(points.size(), false);
+  std::vector<double> minimum_distance2(
+      points.size(), std::numeric_limits<double>::infinity());
+  std::vector<Vector6d> result;
+  result.reserve(target_size);
+
+  auto select = [&](std::size_t index) {
+    if (selected[index] || result.size() >= target_size) return;
+    selected[index] = true;
+    result.emplace_back(points[index]);
+    const Eigen::Vector3d selected_position = points[index].head<3>();
+    for (std::size_t i = 0; i < points.size(); ++i) {
+      if (selected[i]) continue;
+      minimum_distance2[i] =
+          std::min(minimum_distance2[i],
+                   (points[i].head<3>() - selected_position).squaredNorm());
+    }
+  };
+
+  // Preserve at least one representative of every semantic label.  The point
+  // closest to the voxel center is stable and avoids favouring a PCD prefix.
+  std::map<int, std::size_t> label_representatives;
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    const int label = static_cast<int>(std::lround(points[i][5]));
+    const auto found = label_representatives.find(label);
+    if (found == label_representatives.end()) {
+      label_representatives.emplace(label, i);
+      continue;
+    }
+    const double candidate_distance2 =
+        (points[i].head<3>() - voxel_center).squaredNorm();
+    const double current_distance2 =
+        (points[found->second].head<3>() - voxel_center).squaredNorm();
+    if (candidate_distance2 < current_distance2) {
+      found->second = i;
+    }
+  }
+  for (const auto &entry : label_representatives) {
+    select(entry.second);
+  }
+
+  // Fill the remaining capacity with farthest-point sampling.  This keeps
+  // spatial coverage throughout the voxel instead of retaining its first
+  // max_points entries.
+  while (result.size() < target_size) {
+    std::size_t farthest_index = points.size();
+    double farthest_distance2 = -1.0;
+    for (std::size_t i = 0; i < points.size(); ++i) {
+      if (selected[i]) continue;
+      if (minimum_distance2[i] > farthest_distance2) {
+        farthest_distance2 = minimum_distance2[i];
+        farthest_index = i;
+      }
+    }
+    if (farthest_index == points.size()) break;
+    select(farthest_index);
+  }
+  return result;
+}
+
+}  // namespace
 
 std::vector<Vector6d> MapManager::DownSampling(
   const std::vector<Vector6d> &points, double ds_size, bool de_factor) {
@@ -43,8 +139,7 @@ std::vector<Vector6d> MapManager::DownSampling(
     grid.reserve(points.size());
     for (const auto &point : points) {
       Eigen::Vector3d p = point.head(3);
-      auto v_coord = Voxel((p / ds_size).template cast<int>());
-      Voxel voxel(v_coord[0], v_coord[1], v_coord[2]);
+      const Voxel voxel = PointToVoxel(p, ds_size);
       if (grid.find(voxel) != grid.end()) continue;
       grid.insert({voxel, point});
     }
@@ -63,8 +158,7 @@ std::vector<Vector6d> MapManager::DownSampling(
 		else
 			voxel_size = ds_size*2.0;
         Eigen::Vector3d p = point.head(3);
-        auto v_coord = Voxel((p / voxel_size).template cast<int>());
-        Voxel voxel(v_coord[0], v_coord[1], v_coord[2]);
+        const Voxel voxel = PointToVoxel(p, voxel_size);
         if (grid.find(voxel) != grid.end()) continue;
         grid.insert({voxel, point});
     }
@@ -92,8 +186,7 @@ void MapManager::MapInit(const std::vector<Vector6d> &points) {
   const auto &ds = points;
   std::for_each(ds.cbegin(), ds.cend(), [&](const auto &point) {
 	Eigen::Vector3d p = point.head(3);
-	auto v_coord = Voxel((p / voxel_size_).template cast<int>());
-    Voxel voxel(v_coord[0],v_coord[1],v_coord[2]);
+    const Voxel voxel = PointToVoxel(p, voxel_size_);
     auto search = map.find(voxel);
     if (search != map.end()) {
       auto &voxel_block = search.value();
@@ -150,20 +243,17 @@ bool MapManager::LoadGlobalMap(const std::string &path, bool read_only,
                  static_cast<double>(point.y),
                  static_cast<double>(point.z),
                  0.0,
-                 static_cast<double>(point.intensity),
+                 std::isfinite(point.intensity)
+                     ? static_cast<double>(point.intensity)
+                     : 0.0,
                  has_label ? static_cast<double>(point.label) : 0.0;
 
     const Eigen::Vector3d p = map_point.head<3>();
-    const auto v_coord = Voxel((p / voxel_size_).template cast<int>());
-    const Voxel voxel(v_coord[0], v_coord[1], v_coord[2]);
+    const Voxel voxel = PointToVoxel(p, voxel_size_);
     auto search = map.find(voxel);
     if (search != map.end()) {
       auto &voxel_block = search.value();
-      if (max_points_per_voxel_ <= 0 ||
-          voxel_block.points.size() <
-              static_cast<std::size_t>(max_points_per_voxel_)) {
-        voxel_block.points.emplace_back(map_point);
-      }
+      voxel_block.points.emplace_back(map_point);
     } else {
       map.insert({voxel, VoxelBlock{{map_point}}});
     }
@@ -173,6 +263,18 @@ bool MapManager::LoadGlobalMap(const std::string &path, bool read_only,
   if (valid_points == 0 || map.empty()) {
     if (error) *error = "PCD file contains no finite points: " + path;
     return false;
+  }
+
+  std::vector<Voxel> loaded_voxels;
+  loaded_voxels.reserve(map.size());
+  for (const auto &voxel_and_block : map) {
+    loaded_voxels.emplace_back(voxel_and_block.first);
+  }
+  for (const Voxel &voxel : loaded_voxels) {
+    auto search = map.find(voxel);
+    auto &points = search.value().points;
+    points = SelectRepresentativePoints(
+        std::move(points), max_points_per_voxel_, voxel, voxel_size_);
   }
 
   map_has_labels_ = has_label;
@@ -236,8 +338,7 @@ void MapManager::Update(const posePair &pp, const tStampPair &tp) {
       points_transformed6.cbegin(), points_transformed6.cend(),
       [&](const auto &point) {
 		Eigen::Vector3d p = point.head(3);
-		auto v_coord = Voxel((p / voxel_size_).template cast<int>());
-		Voxel voxel(v_coord[0],v_coord[1],v_coord[2]);
+        const Voxel voxel = PointToVoxel(p, voxel_size_);
         auto search = map.find(voxel);
         if (search != map.end()) {
           auto &voxel_block = search.value();
@@ -323,12 +424,11 @@ void MapManager::PointRegistrationNormal(
           Sophus::SE3d T_w_i    = pp.first * T_b_i;
           Eigen::Vector3d point = ds_points_reg[i].head<3>();
           Eigen::Vector3d p_in_world = T_w_i * point;
-          const auto key = Voxel(
-              static_cast<int>(p_in_world[0] / voxel_size_),
-              static_cast<int>(p_in_world[1] / voxel_size_),
-              static_cast<int>(p_in_world[2] / voxel_size_));
+          const Voxel key = PointToVoxel(p_in_world, voxel_size_);
           std::vector<Vector6d> neighboors;
-          neighboors.reserve(7 * max_points_per_voxel_);
+          neighboors.reserve(
+              7U * static_cast<std::size_t>(
+                       std::max(0, max_points_per_voxel_)));
 	      for (const auto &c : coord) {
 	        auto it = map.find(key + c);
 	        if (it == map.end()) continue;
