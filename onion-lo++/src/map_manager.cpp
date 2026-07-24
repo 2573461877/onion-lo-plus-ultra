@@ -364,7 +364,8 @@ void MapManager::Update(const posePair &pp, const tStampPair &tp) {
 
 bool FitPlaneFromPoints(const std::vector<Eigen::Matrix<double, 6, 1>> &neighboors,
                         double planer_threshold,
-                        Eigen::Vector3d &normal) {
+                        Eigen::Vector3d &normal,
+                        double &offset) {
   const int N = neighboors.size();
   if (N < 3) return false;
   Eigen::MatrixXd A(N, 3);
@@ -380,9 +381,11 @@ bool FitPlaneFromPoints(const std::vector<Eigen::Matrix<double, 6, 1>> &neighboo
   double n = normvec.norm();
   if (n == 0) return false;
   normal = normvec / n;
+  offset = 1.0 / n;
 
   for (int i = 0; i < N; ++i) {
-    double residual = std::abs(normal.dot(neighboors[i].head<3>()) + 1.0 / n);
+    double residual =
+        std::abs(normal.dot(neighboors[i].head<3>()) + offset);
     if (residual > planer_threshold) {
       return false;
     }
@@ -455,14 +458,23 @@ void MapManager::PointRegistrationNormal(
 
          
           Eigen::Vector3d normal;
+          double plane_offset = 0.0;
 
           if (no_plane_label)
           		planer_threshold = 5.0*planer_threshold_;
-          if (!FitPlaneFromPoints(nbr, planer_threshold, normal)) continue;
-          const Eigen::Vector3d residual = nbr[0].head<3>() - p_in_world;
+          if (!FitPlaneFromPoints(nbr, planer_threshold, normal,
+                                  plane_offset)) {
+            continue;
+          }
+          // The objective is point-to-plane. Using the full distance to an
+          // arbitrary neighbor here also penalizes tangential separation on
+          // the fitted plane and incorrectly suppresses valid constraints.
+          const double plane_residual =
+              -(normal.dot(p_in_world) + plane_offset);
+          const Eigen::Vector3d residual = plane_residual * normal;
           if (!(residual.allFinite() && normal.allFinite())) continue;
 
-          const double w = Weight(residual.squaredNorm());
+          const double w = Weight(plane_residual * plane_residual);
           const Eigen::Matrix3d Information = normal * normal.transpose();
           Eigen::Vector3d p0 = nbr[0].head<3>();
           if (ppl.first.isLinearized() || ppl.second.isLinearized()) {

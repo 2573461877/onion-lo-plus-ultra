@@ -3,6 +3,7 @@
   <arg name="map_path"
        default="$(find onion_lo_plus)/results/onion_map.pcd"/>
   <arg name="global_map_path" default="$(arg map_path)"/>
+  <arg name="refinement_map_path" default="$(arg map_path)"/>
   <arg name="map_frame" default="odom"/>
   <arg name="lidar_topic" default="/livox/lidar"/>
   <arg name="config_file"
@@ -13,6 +14,27 @@
   <arg name="max_query_attempts" default="3"/>
   <arg name="min_inlier_fraction" default="0.25"/>
   <arg name="max_matching_error" default="-1.0"/>
+  <arg name="enable_candidate_refinement" default="true"/>
+  <arg name="refinement_target_leaf_size" default="0.20"/>
+  <arg name="refinement_query_leaf_size" default="0.20"/>
+  <arg name="refinement_submap_xy_radius" default="80.0"/>
+  <arg name="refinement_submap_z_radius" default="8.0"/>
+  <arg name="ndt_resolution" default="1.0"/>
+  <arg name="ndt_step_size" default="0.20"/>
+  <arg name="ndt_transformation_epsilon" default="0.01"/>
+  <arg name="ndt_max_iterations" default="40"/>
+  <arg name="icp_max_correspondence_distance" default="0.60"/>
+  <arg name="icp_transformation_epsilon" default="0.00001"/>
+  <arg name="icp_euclidean_fitness_epsilon" default="0.00001"/>
+  <arg name="icp_max_iterations" default="50"/>
+  <arg name="validation_max_correspondence_distance" default="0.30"/>
+  <arg name="validation_min_inlier_fraction" default="0.45"/>
+  <arg name="validation_max_rmse" default="0.18"/>
+  <arg name="validation_azimuth_sectors" default="12"/>
+  <arg name="validation_min_azimuth_sectors" default="6"/>
+  <arg name="validation_min_sector_inliers" default="5"/>
+  <arg name="max_refinement_translation" default="10.0"/>
+  <arg name="max_refinement_rotation_deg" default="25.0"/>
 
   <!-- The saved Onion map is a dense 0.1 m centroid map. The upstream
        defaults target much sparser HDL maps and are prohibitively expensive
@@ -76,6 +98,7 @@
         output="screen"
         required="true">
     <param name="map_path" value="$(arg global_map_path)"/>
+    <param name="refinement_map_path" value="$(arg refinement_map_path)"/>
     <param name="map_frame" value="$(arg map_frame)"/>
     <param name="lidar_topic" value="$(arg lidar_topic)"/>
     <param name="auto_relocalize" value="$(arg auto_relocalize)"/>
@@ -83,6 +106,44 @@
     <param name="max_query_attempts" value="$(arg max_query_attempts)"/>
     <param name="min_inlier_fraction" value="$(arg min_inlier_fraction)"/>
     <param name="max_matching_error" value="$(arg max_matching_error)"/>
+    <param name="enable_candidate_refinement"
+           value="$(arg enable_candidate_refinement)"/>
+    <param name="refinement_target_leaf_size"
+           value="$(arg refinement_target_leaf_size)"/>
+    <param name="refinement_query_leaf_size"
+           value="$(arg refinement_query_leaf_size)"/>
+    <param name="refinement_submap_xy_radius"
+           value="$(arg refinement_submap_xy_radius)"/>
+    <param name="refinement_submap_z_radius"
+           value="$(arg refinement_submap_z_radius)"/>
+    <param name="ndt_resolution" value="$(arg ndt_resolution)"/>
+    <param name="ndt_step_size" value="$(arg ndt_step_size)"/>
+    <param name="ndt_transformation_epsilon"
+           value="$(arg ndt_transformation_epsilon)"/>
+    <param name="ndt_max_iterations" value="$(arg ndt_max_iterations)"/>
+    <param name="icp_max_correspondence_distance"
+           value="$(arg icp_max_correspondence_distance)"/>
+    <param name="icp_transformation_epsilon"
+           value="$(arg icp_transformation_epsilon)"/>
+    <param name="icp_euclidean_fitness_epsilon"
+           value="$(arg icp_euclidean_fitness_epsilon)"/>
+    <param name="icp_max_iterations" value="$(arg icp_max_iterations)"/>
+    <param name="validation_max_correspondence_distance"
+           value="$(arg validation_max_correspondence_distance)"/>
+    <param name="validation_min_inlier_fraction"
+           value="$(arg validation_min_inlier_fraction)"/>
+    <param name="validation_max_rmse"
+           value="$(arg validation_max_rmse)"/>
+    <param name="validation_azimuth_sectors"
+           value="$(arg validation_azimuth_sectors)"/>
+    <param name="validation_min_azimuth_sectors"
+           value="$(arg validation_min_azimuth_sectors)"/>
+    <param name="validation_min_sector_inliers"
+           value="$(arg validation_min_sector_inliers)"/>
+    <param name="max_refinement_translation"
+           value="$(arg max_refinement_translation)"/>
+    <param name="max_refinement_rotation_deg"
+           value="$(arg max_refinement_rotation_deg)"/>
   </node>
 
   <include file="$(find onion_lo_plus)/launch/livox.launch">

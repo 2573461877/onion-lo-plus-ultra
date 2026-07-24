@@ -9,10 +9,14 @@ scan-to-map tracking. The first implementation uses the upstream
 1. Load the persistent PCD, or an optional coarse voxelized copy of it, for
    global feature matching.
 2. Send its XYZ fields to `/hdl_global_localization/set_global_map`.
-3. Query `/hdl_global_localization/query` with a live LiDAR frame.
-4. Validate the best candidate and publish it on the standard
+3. Query `/hdl_global_localization/query` with a live LiDAR frame and retain
+   its Top-K coarse candidates.
+4. Crop a local submap around every candidate, run NDT followed by ICP
+   against the dense Onion map, and reject candidates that fail dense
+   inlier, RMSE, azimuth-coverage, or correction-magnitude checks.
+5. Publish only the best accepted refined pose on the standard
    `/initialpose` topic.
-5. Onion starts local tracking only after receiving that pose.
+6. Onion starts local tracking only after receiving that pose.
 
 The only Onion-specific boundary is `/initialpose`, so another global
 relocalization implementation can replace this adapter without changing the
@@ -41,16 +45,29 @@ roslaunch onion_global_relocalization hdl_onion_relocalization.launch \
   map_path:=/absolute/path/to/onion_map.pcd
 ```
 
-For a large dense map, keep `map_path` pointed at the full-resolution map used
-by Onion and pass a separately voxelized copy through `global_map_path`. This
-reduces one-time FPFH map initialization without lowering the local
-scan-to-map resolution:
+For a large dense map, keep `map_path` and `refinement_map_path` pointed at the
+full-resolution map used by Onion and pass a separately voxelized copy through
+`global_map_path`. This reduces one-time FPFH map initialization without
+lowering either local tracking or candidate-refinement resolution:
 
 ```bash
 roslaunch onion_global_relocalization hdl_onion_relocalization.launch \
   map_path:=/absolute/path/to/onion_map.pcd \
-  global_map_path:=/absolute/path/to/onion_map_voxel_2m.pcd
+  global_map_path:=/absolute/path/to/onion_map_voxel_2m.pcd \
+  refinement_map_path:=/absolute/path/to/onion_map.pcd
 ```
+
+The production defaults deliberately reject ambiguous outdoor matches:
+validation requires at least 45% of the 0.2 m query voxels to have a dense-map
+neighbor within 0.3 m, no more than 0.18 m inlier RMSE, and support from at
+least 6 of 12 azimuth sectors. These values are launch arguments, but lowering
+them can turn repeated road geometry into a confident false positive. A
+rejected candidate does not reset Onion.
+
+Dense refinement improves candidate precision and failure detection; it
+cannot recover the true position when FPFH-RANSAC fails to include it in
+Top-K. The adapter logs every coarse and refined candidate so retrieval recall
+and refinement quality can be evaluated separately.
 
 For the existing diagnostic bag:
 

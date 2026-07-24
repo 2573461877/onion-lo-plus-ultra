@@ -13,7 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   std_srvs
 )
-find_package(PCL REQUIRED COMPONENTS common filters io)
+find_package(PCL REQUIRED COMPONENTS common filters io kdtree registration)
 
 catkin_package(
   CATKIN_DEPENDS
