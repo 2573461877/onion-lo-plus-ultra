@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="bag_path" default="/home/nvidia/tanwei_tw360.bag"/>
+  <arg name="pointcloud_topic" default="/fusion_rslidar_points"/>
+  <arg name="reference_poses_csv"
+       default="$(find onion_lo_plus)/results/diagnostics/halo_outdoor/vehicle_crop_mapping_20260727.csv"/>
+  <arg name="output_directory"
+       default="$(find onion_lo_plus)/results/scancontext_database_vehicle_v3"/>
+  <arg name="keyframe_interval_sec" default="2.0"/>
+  <arg name="half_window_sec" default="1.0"/>
+  <arg name="vehicle_crop_min_x" default="-0.6"/>
+  <arg name="vehicle_crop_max_x" default="1.65"/>
+  <arg name="vehicle_crop_min_y" default="-0.7"/>
+  <arg name="vehicle_crop_max_y" default="0.7"/>
+  <arg name="vehicle_crop_min_z" default="-0.5"/>
+  <arg name="vehicle_crop_max_z" default="2.5"/>
+
+  <include file="$(find onion_cloud_preprocessing)/launch/halo_vehicle_tf.launch"/>
+
+  <node pkg="onion_relocalization"
+        type="onion_scancontext_database_builder"
+        name="onion_scancontext_database_builder"
+        output="screen"
+        required="true"
+        args="$(arg bag_path) $(arg pointcloud_topic) $(arg reference_poses_csv) $(arg output_directory) $(arg keyframe_interval_sec) $(arg half_window_sec)">
+    <param name="preprocess_to_frame" value="vehicle_link"/>
+    <param name="reference_pose_frame" value="vehicle_link"/>
+    <param name="vehicle_crop_min_x"
+           value="$(arg vehicle_crop_min_x)"/>
+    <param name="vehicle_crop_max_x"
+           value="$(arg vehicle_crop_max_x)"/>
+    <param name="vehicle_crop_min_y"
+           value="$(arg vehicle_crop_min_y)"/>
+    <param name="vehicle_crop_max_y"
+           value="$(arg vehicle_crop_max_y)"/>
+    <param name="vehicle_crop_min_z"
+           value="$(arg vehicle_crop_min_z)"/>
+    <param name="vehicle_crop_max_z"
+           value="$(arg vehicle_crop_max_z)"/>
+    <param name="enable_point_deskew" value="true"/>
+    <param name="require_point_deskew" value="true"/>
+    <param name="point_time_field" value="t_sec"/>
+    <param name="point_time_scale" value="1.0"/>
+    <param name="point_time_secondary_field" value="t_usec"/>
+    <param name="point_time_secondary_scale" value="0.000001"/>
+    <param name="point_time_is_offset" value="false"/>
+    <param name="maximum_pose_interpolation_gap_sec" value="0.15"/>
+    <param name="minimum_deskewed_fraction" value="0.95"/>
+  </node>
+</launch>

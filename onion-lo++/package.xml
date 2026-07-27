@@ -45,6 +45,8 @@
   <exec_depend>livox_ros_driver2</exec_depend>
   <exec_depend>tf2</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>tf</exec_depend>
+  <exec_depend>onion_cloud_preprocessing</exec_depend>
   <exec_depend>octomap</exec_depend>
   <exec_depend>Sophus</exec_depend>
   <exec_depend>Eigen3</exec_depend>

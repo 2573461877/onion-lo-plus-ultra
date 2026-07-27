@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Test-only: the mapping trajectory supplies relative motion for
+       deskew/accumulation and is not independent ground truth. -->
+  <arg name="reference_metrics_csv"
+       default="$(find onion_lo_plus)/results/diagnostics/halo_outdoor/vehicle_crop_mapping_20260727.csv"/>
+  <arg name="map_path"
+       default="$(find onion_lo_plus)/results/tanwei_tw360_halo_outdoor_vehicle_crop_20260727.pcd"/>
+  <arg name="database_manifest"
+       default="$(find onion_lo_plus)/results/scancontext_database_vehicle_v3/manifest.csv"/>
+  <arg name="bagfile" default="/home/nvidia/tanwei_tw360.bag"/>
+  <arg name="bag_start" default="0.0"/>
+  <arg name="bag_delay" default="5.0"/>
+  <arg name="bag_rate" default="0.5"/>
+  <arg name="metrics_output_path" default=""/>
+  <arg name="relocalization_metrics_output_path" default=""/>
+  <arg name="diagnostic_output_directory"
+       default="$(find onion_lo_plus)/results/diagnostics/halo_scancontext_evaluation"/>
+
+  <node pkg="onion_relocalization"
+        type="publish_reference_odometry.py"
+        name="scancontext_reference_odometry"
+        output="screen"
+        required="true"
+        args="$(arg reference_metrics_csv) --cloud-topic /onion/points_filtered_vehicle --odom-topic /scancontext_reference_odometry --max-time-error 0.02"/>
+
+  <include file="$(find onion_relocalization)/launch/halo_scancontext_kiss_onion_relocalization.launch">
+    <arg name="map_path" value="$(arg map_path)"/>
+    <arg name="database_manifest" value="$(arg database_manifest)"/>
+    <arg name="relative_odom_topic"
+         value="/scancontext_reference_odometry"/>
+    <arg name="bagfile" value="$(arg bagfile)"/>
+    <arg name="bag_start" value="$(arg bag_start)"/>
+    <arg name="bag_delay" value="$(arg bag_delay)"/>
+    <arg name="bag_rate" value="$(arg bag_rate)"/>
+    <arg name="visualize" value="false"/>
+    <arg name="metrics_output_path"
+         value="$(arg metrics_output_path)"/>
+    <arg name="relocalization_metrics_output_path"
+         value="$(arg relocalization_metrics_output_path)"/>
+    <arg name="diagnostic_output_directory"
+         value="$(arg diagnostic_output_directory)"/>
+  </include>
+</launch>

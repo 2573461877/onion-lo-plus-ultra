@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="method" default="scancontext"/>
+  <arg name="map_path"
+       default="$(find onion_lo_plus)/results/tanwei_tw360_halo_outdoor_vehicle_crop_20260727.pcd"/>
+  <arg name="database_manifest"
+       default="$(find onion_lo_plus)/results/scancontext_database_vehicle_v3/manifest.csv"/>
+  <arg name="relative_odom_topic" default=""/>
+  <arg name="bagfile" default=""/>
+  <arg name="bag_start" default="0.0"/>
+  <arg name="bag_rate" default="1.0"/>
+  <arg name="visualize" default="false"/>
+  <arg name="initial_pose_cloud_buffer_size" default="50"/>
+  <arg name="initial_pose_replay_tolerance_sec" default="0.05"/>
+  <arg name="traj_voxel_size" default="1.0"/>
+
+  <group if="$(eval arg('method') == 'scancontext')">
+    <include file="$(find onion_relocalization)/launch/halo_scancontext_kiss_onion_relocalization.launch">
+      <arg name="map_path" value="$(arg map_path)"/>
+      <arg name="database_manifest" value="$(arg database_manifest)"/>
+      <arg name="relative_odom_topic"
+           value="$(arg relative_odom_topic)"/>
+      <arg name="bagfile" value="$(arg bagfile)"/>
+      <arg name="bag_start" value="$(arg bag_start)"/>
+      <arg name="bag_rate" value="$(arg bag_rate)"/>
+      <arg name="visualize" value="$(arg visualize)"/>
+      <arg name="initial_pose_cloud_buffer_size"
+           value="$(arg initial_pose_cloud_buffer_size)"/>
+      <arg name="initial_pose_replay_tolerance_sec"
+           value="$(arg initial_pose_replay_tolerance_sec)"/>
+      <arg name="traj_voxel_size" value="$(arg traj_voxel_size)"/>
+    </include>
+  </group>
+
+  <group if="$(eval arg('method') == 'hdl')">
+    <include file="$(find onion_relocalization)/launch/halo_hdl_onion_relocalization.launch">
+      <arg name="map_path" value="$(arg map_path)"/>
+      <arg name="bagfile" value="$(arg bagfile)"/>
+      <arg name="bag_start" value="$(arg bag_start)"/>
+      <arg name="bag_rate" value="$(arg bag_rate)"/>
+      <arg name="visualize" value="$(arg visualize)"/>
+      <arg name="initial_pose_cloud_buffer_size"
+           value="$(arg initial_pose_cloud_buffer_size)"/>
+      <arg name="initial_pose_replay_tolerance_sec"
+           value="$(arg initial_pose_replay_tolerance_sec)"/>
+      <arg name="traj_voxel_size" value="$(arg traj_voxel_size)"/>
+    </include>
+  </group>
+</launch>

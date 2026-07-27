@@ -1,12 +1,17 @@
 Map:
-  # Halo's published frame in tanwei_tw360.bag.
-  child_frame: "rslidar_top"
+  # Onion estimates the input LiDAR frame internally, then uses the rigid TF
+  # chain to publish the rear-axle-centred vehicle pose.
+  tracking_frame: "rslidar_top"
+  child_frame: "vehicle_link"
   odom_frame: "odom"
+  publish_identity_base_link_tf: false
 
   pcd_save_en: false
   Save_path: false
   localization_mode: false
   wait_for_initial_pose: false
+  initial_pose_cloud_buffer_size: 50
+  initial_pose_replay_tolerance_sec: 0.05
   map_path: "results/tanwei_tw360_halo_outdoor_map.pcd"
   save_pcd_en: true
   save_map_on_shutdown: true
@@ -51,6 +56,23 @@ Onion:
   # Match Halo's native angular sampling from the V0.3 product manual.
   Resolution_h: 0.36
   Resolution_v: 1.04
+
+VehicleCrop:
+  # halo_outdoor.launch uses onion_cloud_preprocessing once and overrides this
+  # to false. Keep the bounds here for direct node launches and documentation.
+  enabled: false
+  # Bounds are evaluated in the rear-axle-centred vehicle frame and match the
+  # measured body-filter extents supplied for this vehicle.
+  frame_id: "vehicle_link"
+  min_x: -0.6
+  max_x: 1.65
+  min_y: -0.7
+  max_y: 0.7
+  min_z: -0.5
+  max_z: 2.5
+  tf_timeout_sec: 2.0
+  # A silent no-filter fallback can contaminate the persistent map.
+  fail_if_tf_unavailable: true
 
 Traj:
   init_interval: 200

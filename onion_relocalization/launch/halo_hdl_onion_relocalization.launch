@@ -1,0 +1,73 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="map_path"
+       default="$(find onion_lo_plus)/results/tanwei_tw360_halo_outdoor_vehicle_crop_20260727.pcd"/>
+  <arg name="map_frame" default="odom"/>
+  <arg name="raw_lidar_topic" default="/fusion_rslidar_points"/>
+  <arg name="filtered_sensor_topic"
+       default="/onion/points_filtered_sensor"/>
+  <arg name="filtered_vehicle_topic"
+       default="/onion/points_filtered_vehicle"/>
+  <arg name="config_file"
+       default="$(find onion_lo_plus)/config/halo_outdoor.yaml"/>
+  <arg name="bagfile" default=""/>
+  <arg name="bag_start" default="0.0"/>
+  <arg name="bag_delay" default="5.0"/>
+  <arg name="bag_rate" default="0.25"/>
+  <arg name="visualize" default="false"/>
+  <arg name="initial_pose_cloud_buffer_size" default="50"/>
+  <arg name="initial_pose_replay_tolerance_sec" default="0.05"/>
+  <arg name="traj_voxel_size" default="1.0"/>
+  <arg name="metrics_output_path" default=""/>
+  <arg name="diagnostic_output_directory"
+       default="$(find onion_lo_plus)/results/diagnostics/halo_hdl"/>
+  <arg name="publish_vehicle_static_tf" default="true"/>
+  <arg name="vehicle_crop_min_x" default="-0.6"/>
+  <arg name="vehicle_crop_max_x" default="1.65"/>
+  <arg name="vehicle_crop_min_y" default="-0.7"/>
+  <arg name="vehicle_crop_max_y" default="0.7"/>
+  <arg name="vehicle_crop_min_z" default="-0.5"/>
+  <arg name="vehicle_crop_max_z" default="2.5"/>
+
+  <include file="$(find onion_cloud_preprocessing)/launch/halo_vehicle_preprocessing.launch">
+    <arg name="raw_lidar_topic" value="$(arg raw_lidar_topic)"/>
+    <arg name="filtered_sensor_topic"
+         value="$(arg filtered_sensor_topic)"/>
+    <arg name="filtered_vehicle_topic"
+         value="$(arg filtered_vehicle_topic)"/>
+    <arg name="publish_vehicle_static_tf"
+         value="$(arg publish_vehicle_static_tf)"/>
+    <arg name="min_x" value="$(arg vehicle_crop_min_x)"/>
+    <arg name="max_x" value="$(arg vehicle_crop_max_x)"/>
+    <arg name="min_y" value="$(arg vehicle_crop_min_y)"/>
+    <arg name="max_y" value="$(arg vehicle_crop_max_y)"/>
+    <arg name="min_z" value="$(arg vehicle_crop_min_z)"/>
+    <arg name="max_z" value="$(arg vehicle_crop_max_z)"/>
+  </include>
+
+  <include file="$(find onion_relocalization)/launch/hdl_onion_relocalization.launch">
+    <arg name="map_path" value="$(arg map_path)"/>
+    <arg name="map_frame" value="$(arg map_frame)"/>
+    <arg name="lidar_topic" value="$(arg raw_lidar_topic)"/>
+    <arg name="relocalization_lidar_topic"
+         value="$(arg filtered_vehicle_topic)"/>
+    <arg name="onion_lidar_topic"
+         value="$(arg filtered_sensor_topic)"/>
+    <arg name="relocalization_pose_frame" value="vehicle_link"/>
+    <arg name="config_file" value="$(arg config_file)"/>
+    <arg name="bagfile" value="$(arg bagfile)"/>
+    <arg name="bag_start" value="$(arg bag_start)"/>
+    <arg name="bag_delay" value="$(arg bag_delay)"/>
+    <arg name="bag_rate" value="$(arg bag_rate)"/>
+    <arg name="visualize" value="$(arg visualize)"/>
+    <arg name="initial_pose_cloud_buffer_size"
+         value="$(arg initial_pose_cloud_buffer_size)"/>
+    <arg name="initial_pose_replay_tolerance_sec"
+         value="$(arg initial_pose_replay_tolerance_sec)"/>
+    <arg name="traj_voxel_size" value="$(arg traj_voxel_size)"/>
+    <arg name="metrics_output_path"
+         value="$(arg metrics_output_path)"/>
+    <arg name="diagnostic_output_directory"
+         value="$(arg diagnostic_output_directory)"/>
+  </include>
+</launch>

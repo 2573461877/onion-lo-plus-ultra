@@ -14,6 +14,11 @@ Map:
   # publishes a valid /initialpose. This prevents local registration from
   # failing around the identity pose while global relocalization is running.
   wait_for_initial_pose: false
+  # Preserve scans received while global matching is running. After
+  # /initialpose arrives, replay scans from its timestamp so continuous
+  # tracking does not start from a newer scan with a stale pose.
+  initial_pose_cloud_buffer_size: 50
+  initial_pose_replay_tolerance_sec: 0.05
   map_path: "results/onion_map.pcd"       # relative paths use the package root
   save_pcd_en: true
   save_map_on_shutdown: true
@@ -64,6 +69,21 @@ Onion:
   exp_key_num: 3000
   Resolution_h: 1.0
   Resolution_v: 1.0
+
+# Disabled for the handheld MID-360 profile. Vehicle deployments can enable
+# the same time-preserving crop and provide a rigid TF into vehicle_link.
+VehicleCrop:
+  enabled: false
+  frame_id: "vehicle_link"
+  min_x: -1.0
+  max_x: 1.0
+  min_y: -1.0
+  max_y: 1.0
+  min_z: -1.0
+  max_z: 2.0
+  tf_timeout_sec: 1.0
+  fail_if_tf_unavailable: true
+
 Traj:
   init_interval: 200  #ms
   seg_interval: 20   #ms

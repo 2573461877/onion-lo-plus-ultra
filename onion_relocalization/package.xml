@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>onion_relocalization</name>
+  <version>0.1.0</version>
+  <description>
+    Replaceable HDL and Scan Context plus KISS-Matcher global
+    relocalization front-ends for Onion-LO++.
+  </description>
+
+  <maintainer email="2573461877@qq.com">Onion-LO++ maintainers</maintainer>
+  <license>CC-BY-NC-SA-4.0</license>
+  <license>GPL-3.0-or-later</license>
+  <license>MIT</license>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>catkin</buildtool_depend>
+
+  <depend>cv_bridge</depend>
+  <depend>geometry_msgs</depend>
+  <depend>hdl_global_localization</depend>
+  <depend>nav_msgs</depend>
+  <depend>onion_cloud_preprocessing</depend>
+  <depend>pcl_conversions</depend>
+  <depend>pcl_ros</depend>
+  <depend>rosbag</depend>
+  <depend>roscpp</depend>
+  <depend>rospy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>tf2_ros</depend>
+  <exec_depend>onion_lo_plus</exec_depend>
+
+  <export/>
+</package>

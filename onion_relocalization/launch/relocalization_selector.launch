@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="method" default="scancontext"/>
+  <arg name="map_path"
+       default="$(find onion_lo_plus)/results/onion_map.pcd"/>
+  <arg name="database_manifest"
+       default="$(find onion_lo_plus)/results/scancontext_database_deskewed_v2/manifest.csv"/>
+  <arg name="config_file"
+       default="$(find onion_lo_plus)/config/livox.yaml"/>
+  <arg name="lidar_topic" default="/livox/lidar"/>
+  <arg name="relative_odom_topic" default=""/>
+  <arg name="bagfile" default=""/>
+  <arg name="bag_start" default="0.0"/>
+  <arg name="bag_rate" default="1.0"/>
+  <arg name="visualize" default="true"/>
+
+  <group if="$(eval arg('method') == 'scancontext')">
+    <include file="$(find onion_relocalization)/launch/scancontext_kiss_onion_relocalization.launch">
+      <arg name="map_path" value="$(arg map_path)"/>
+      <arg name="database_manifest" value="$(arg database_manifest)"/>
+      <arg name="config_file" value="$(arg config_file)"/>
+      <arg name="lidar_topic" value="$(arg lidar_topic)"/>
+      <arg name="relative_odom_topic"
+           value="$(arg relative_odom_topic)"/>
+      <arg name="bagfile" value="$(arg bagfile)"/>
+      <arg name="bag_start" value="$(arg bag_start)"/>
+      <arg name="bag_rate" value="$(arg bag_rate)"/>
+      <arg name="visualize" value="$(arg visualize)"/>
+    </include>
+  </group>
+
+  <group if="$(eval arg('method') == 'hdl')">
+    <include file="$(find onion_relocalization)/launch/hdl_onion_relocalization.launch">
+      <arg name="map_path" value="$(arg map_path)"/>
+      <arg name="config_file" value="$(arg config_file)"/>
+      <arg name="lidar_topic" value="$(arg lidar_topic)"/>
+      <arg name="bagfile" value="$(arg bagfile)"/>
+      <arg name="bag_start" value="$(arg bag_start)"/>
+      <arg name="bag_rate" value="$(arg bag_rate)"/>
+      <arg name="visualize" value="$(arg visualize)"/>
+    </include>
+  </group>
+</launch>

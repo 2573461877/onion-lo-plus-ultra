@@ -11,6 +11,7 @@
 #include <utility>
 
 #include <rosbag/bag.h>
+#include <tf2/exceptions.h>
 
 namespace fs = boost::filesystem;
 
@@ -77,10 +78,16 @@ double ReadNumericPointField(const std::uint8_t* point_data,
   }
 }
 
+std::string NormalizeFrameId(const std::string& frame_id) {
+  const auto first_character = frame_id.find_first_not_of('/');
+  if (first_character == std::string::npos) return {};
+  return frame_id.substr(first_character);
+}
+
 }  // namespace
 
 Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
-    : nh_(nh), pnh_(pnh) {
+    : nh_(nh), pnh_(pnh), tf_listener_(tf_buffer_) {
   pnh_.param("Map/pcd_save_en", publish_octomap_, false);
   pnh_.param("Map/Save_path", save_path_, false);
   pnh_.param("Map/save_pcd_en", save_pcd_en_, true);
@@ -100,9 +107,16 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   pnh_.param("Map/max_mapping_angular_speed_deg",
              max_mapping_angular_speed_deg_, 240.0);
   pnh_.param("Map/child_frame", child_frame_, std::string("base_link"));
+  pnh_.param("Map/tracking_frame", tracking_frame_, child_frame_);
   pnh_.param("Map/odom_frame", odom_frame_, std::string("odom"));
+  pnh_.param("Map/publish_identity_base_link_tf",
+             publish_identity_base_link_tf_, true);
   pnh_.param("Map/localization_mode", localization_mode_, false);
   pnh_.param("Map/wait_for_initial_pose", wait_for_initial_pose_, false);
+  pnh_.param("Map/initial_pose_cloud_buffer_size",
+             initial_pose_cloud_buffer_size_, 50);
+  pnh_.param("Map/initial_pose_replay_tolerance_sec",
+             initial_pose_replay_tolerance_sec_, 0.05);
   pnh_.param("Map/update_loaded_map", config_.update_loaded_map, false);
   pnh_.param("Map/loaded_map_max_points_per_voxel",
              config_.loaded_map_max_points_per_voxel, 150);
@@ -136,6 +150,20 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   pnh_.param("Onion/exp_key_num", config_.exp_key_num, 3000);
   pnh_.param("Onion/Resolution_v", config_.Resolution_v, 1.0);
   pnh_.param("Onion/Resolution_h", config_.Resolution_h, 1.0);
+
+  pnh_.param("VehicleCrop/enabled", vehicle_crop_enabled_, false);
+  pnh_.param("VehicleCrop/frame_id", vehicle_crop_frame_,
+             std::string("vehicle_link"));
+  pnh_.param("VehicleCrop/min_x", vehicle_crop_min_x_, -1.0);
+  pnh_.param("VehicleCrop/max_x", vehicle_crop_max_x_, 1.0);
+  pnh_.param("VehicleCrop/min_y", vehicle_crop_min_y_, -1.0);
+  pnh_.param("VehicleCrop/max_y", vehicle_crop_max_y_, 1.0);
+  pnh_.param("VehicleCrop/min_z", vehicle_crop_min_z_, -1.0);
+  pnh_.param("VehicleCrop/max_z", vehicle_crop_max_z_, 2.0);
+  pnh_.param("VehicleCrop/tf_timeout_sec",
+             vehicle_crop_tf_timeout_sec_, 1.0);
+  pnh_.param("VehicleCrop/fail_if_tf_unavailable",
+             vehicle_crop_fail_if_tf_unavailable_, true);
 
   pnh_.param("Traj/voxel_size", config_.voxel_size, 1.0);
   pnh_.param("Traj/init_interval", config_.init_interval, 200.0);
@@ -210,6 +238,43 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   if (publisher_queue_size_ <= 0) {
     throw std::runtime_error(
         "Onion/publisher_queue_size must be greater than zero");
+  }
+  if (initial_pose_cloud_buffer_size_ <= 0) {
+    throw std::runtime_error(
+        "Map/initial_pose_cloud_buffer_size must be greater than zero");
+  }
+  if (!std::isfinite(initial_pose_replay_tolerance_sec_) ||
+      initial_pose_replay_tolerance_sec_ < 0.0) {
+    throw std::runtime_error(
+        "Map/initial_pose_replay_tolerance_sec must be finite and "
+        "non-negative");
+  }
+
+  child_frame_ = NormalizeFrameId(child_frame_);
+  tracking_frame_ = NormalizeFrameId(tracking_frame_);
+  odom_frame_ = NormalizeFrameId(odom_frame_);
+  vehicle_crop_frame_ = NormalizeFrameId(vehicle_crop_frame_);
+  if (child_frame_.empty() || tracking_frame_.empty() ||
+      odom_frame_.empty()) {
+    throw std::runtime_error(
+        "Map child/tracking/odom frame ids must not be empty");
+  }
+  if (vehicle_crop_enabled_) {
+    if (vehicle_crop_frame_.empty()) {
+      throw std::runtime_error(
+          "VehicleCrop/frame_id must not be empty when enabled");
+    }
+    if (!(vehicle_crop_min_x_ < vehicle_crop_max_x_) ||
+        !(vehicle_crop_min_y_ < vehicle_crop_max_y_) ||
+        !(vehicle_crop_min_z_ < vehicle_crop_max_z_)) {
+      throw std::runtime_error(
+          "VehicleCrop min bounds must be smaller than max bounds");
+    }
+    if (!std::isfinite(vehicle_crop_tf_timeout_sec_) ||
+        vehicle_crop_tf_timeout_sec_ < 0.0) {
+      throw std::runtime_error(
+          "VehicleCrop/tf_timeout_sec must be finite and non-negative");
+    }
   }
 
   if (config_.type != "POINTCLOUD2") {
@@ -303,7 +368,8 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
     }
   }
 
-  if (child_frame_ != "base_link") {
+  if (publish_identity_base_link_tf_ &&
+      child_frame_ != "base_link") {
     static tf2_ros::StaticTransformBroadcaster broadcaster;
     geometry_msgs::TransformStamped transform;
     transform.header.stamp = ros::Time::now();
@@ -316,12 +382,24 @@ Onion_LO::Onion_LO(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
   ROS_INFO_STREAM("\033[32mOnion-LO++ initialized in "
                   << (localization_mode_ ? "localization" : "mapping")
                   << " mode; PointCloud2 topic: " << lidar_topic_
+                  << "; tracking frame: " << tracking_frame_
+                  << "; published child frame: " << child_frame_
+                  << "; vehicle crop: "
+                  << (vehicle_crop_enabled_ ? "enabled" : "disabled")
+                  << (vehicle_crop_enabled_
+                          ? " in " + vehicle_crop_frame_
+                          : std::string())
                   << "; registration voxel cap: "
                   << config_.max_points_per_voxel
                   << "; loaded-map voxel cap: "
                   << config_.loaded_map_max_points_per_voxel
                   << "; waiting for initial pose: "
                   << (wait_for_initial_pose_ ? "yes" : "no")
+                  << (wait_for_initial_pose_
+                          ? "; initial-pose cloud buffer: " +
+                                std::to_string(
+                                    initial_pose_cloud_buffer_size_)
+                          : std::string())
                   << "; LiDAR input queue: "
                   << lidar_subscriber_queue_size_
                   << "; publisher queue: "
@@ -354,21 +432,30 @@ void Onion_LO::PointCloudCallback(
     const sensor_msgs::PointCloud2::ConstPtr& msg) {
   if (localization_mode_ && wait_for_initial_pose_ &&
       !initial_pose_received_) {
+    initial_pose_cloud_buffer_.push_back(msg);
+    while (initial_pose_cloud_buffer_.size() >
+           static_cast<std::size_t>(
+               initial_pose_cloud_buffer_size_)) {
+      initial_pose_cloud_buffer_.pop_front();
+    }
     ROS_INFO_THROTTLE(
         1.0,
-        "Localization is waiting for /initialpose; LiDAR frame deferred");
+        "Localization is waiting for /initialpose; buffered %zu LiDAR "
+        "frames",
+        initial_pose_cloud_buffer_.size());
     return;
   }
   BufferDiagnosticFrame(msg);
   try {
-    if (!msg->header.frame_id.empty() &&
-        msg->header.frame_id != child_frame_) {
+    const std::string input_frame =
+        NormalizeFrameId(msg->header.frame_id);
+    if (!input_frame.empty() &&
+        input_frame != tracking_frame_) {
       ROS_WARN_STREAM_ONCE(
           "PointCloud2 frame_id is '" << msg->header.frame_id
-          << "' but Map/child_frame is '" << child_frame_
-          << "'. Onion-LO++ treats input points as the tracked child frame "
-             "without applying a TF extrinsic; make these frames identical "
-             "or pre-transform the cloud.");
+          << "' but Map/tracking_frame is '" << tracking_frame_
+          << "'. Onion-LO++ tracks the actual input frame; update the "
+             "configuration so output-frame conversion remains explicit.");
     }
     LiDAR_odom(msg);
   } catch (const std::exception& exception) {
@@ -771,6 +858,39 @@ traj::Scan::Ptr Onion_LO::Msg2Scan(const sensor_msgs::PointCloud2& msg) {
   const double header_time = msg.header.stamp.toSec();
   double min_point_time = std::numeric_limits<double>::infinity();
   double max_point_time = -std::numeric_limits<double>::infinity();
+  std::size_t finite_point_count = 0;
+  std::size_t vehicle_point_count = 0;
+
+  const std::string input_frame = NormalizeFrameId(msg.header.frame_id);
+  Eigen::Isometry3d crop_from_input = Eigen::Isometry3d::Identity();
+  bool apply_vehicle_crop = vehicle_crop_enabled_;
+  if (apply_vehicle_crop) {
+    if (input_frame.empty()) {
+      throw std::runtime_error(
+          "VehicleCrop requires a non-empty PointCloud2 frame_id");
+    }
+    if (input_frame != vehicle_crop_frame_) {
+      if (!vehicle_crop_transform_cached_ ||
+          vehicle_crop_transform_source_frame_ != input_frame) {
+        try {
+          vehicle_crop_from_source_ = LookupStaticTransform(
+              vehicle_crop_frame_, input_frame,
+              ros::Duration(vehicle_crop_tf_timeout_sec_));
+          vehicle_crop_transform_source_frame_ = input_frame;
+          vehicle_crop_transform_cached_ = true;
+        } catch (const std::exception& exception) {
+          if (vehicle_crop_fail_if_tf_unavailable_) throw;
+          apply_vehicle_crop = false;
+          ROS_WARN_STREAM_THROTTLE(
+              1.0, "VehicleCrop skipped because TF is unavailable: "
+                       << exception.what());
+        }
+      }
+      if (apply_vehicle_crop) {
+        crop_from_input = vehicle_crop_from_source_;
+      }
+    }
+  }
   scan->points.reserve(point_count);
 
   for (std::uint32_t row = 0; row < msg.height; ++row) {
@@ -806,8 +926,23 @@ traj::Scan::Ptr Onion_LO::Msg2Scan(const sensor_msgs::PointCloud2& msg) {
           !std::isfinite(point.z) || !std::isfinite(point.ts)) {
         continue;
       }
+      ++finite_point_count;
       min_point_time = std::min(min_point_time, point.ts);
       max_point_time = std::max(max_point_time, point.ts);
+      if (apply_vehicle_crop) {
+        const Eigen::Vector3d point_in_crop_frame =
+            crop_from_input *
+            Eigen::Vector3d(point.x, point.y, point.z);
+        if (point_in_crop_frame.x() >= vehicle_crop_min_x_ &&
+            point_in_crop_frame.x() <= vehicle_crop_max_x_ &&
+            point_in_crop_frame.y() >= vehicle_crop_min_y_ &&
+            point_in_crop_frame.y() <= vehicle_crop_max_y_ &&
+            point_in_crop_frame.z() >= vehicle_crop_min_z_ &&
+            point_in_crop_frame.z() <= vehicle_crop_max_z_) {
+          ++vehicle_point_count;
+          continue;
+        }
+      }
       scan->points.emplace_back(point);
     }
   }
@@ -816,6 +951,28 @@ traj::Scan::Ptr Onion_LO::Msg2Scan(const sensor_msgs::PointCloud2& msg) {
     throw std::runtime_error("PointCloud2 contains no finite points");
   }
   scan->size = scan->points.size();
+  if (vehicle_crop_enabled_) {
+    vehicle_crop_total_finite_points_ += finite_point_count;
+    vehicle_crop_total_removed_points_ += vehicle_point_count;
+    const double current_ratio =
+        finite_point_count == 0
+            ? 0.0
+            : 100.0 * static_cast<double>(vehicle_point_count) /
+                  static_cast<double>(finite_point_count);
+    const double total_ratio =
+        vehicle_crop_total_finite_points_ == 0
+            ? 0.0
+            : 100.0 *
+                  static_cast<double>(vehicle_crop_total_removed_points_) /
+                  static_cast<double>(vehicle_crop_total_finite_points_);
+    ROS_INFO_STREAM_THROTTLE(
+        1.0, std::fixed << std::setprecision(2)
+                        << "VehicleCrop [" << input_frame << " -> "
+                        << vehicle_crop_frame_ << "] removed "
+                        << vehicle_point_count << "/" << finite_point_count
+                        << " points (" << current_ratio
+                        << "%); cumulative=" << total_ratio << "%");
+  }
 
   // A wrong absolute/offset setting otherwise fails silently much later in
   // PointCloudSegment. MID-360 frames at 10 Hz should be within 0.1 s; 5 s
@@ -855,6 +1012,102 @@ traj::Scan::Ptr Onion_LO::Msg2Scan(const sensor_msgs::PointCloud2& msg) {
   return scan;
 }
 
+Eigen::Isometry3d Onion_LO::LookupStaticTransform(
+    const std::string& target_frame, const std::string& source_frame,
+    const ros::Duration& timeout) {
+  if (target_frame == source_frame) {
+    return Eigen::Isometry3d::Identity();
+  }
+
+  geometry_msgs::TransformStamped transform;
+  try {
+    // This rigid relationship is independent of bag time. Asking for the
+    // latest TF also works before a rosbag /clock reaches its first stamp.
+    transform = tf_buffer_.lookupTransform(
+        target_frame, source_frame, ros::Time(0), timeout);
+  } catch (const tf2::TransformException& exception) {
+    throw std::runtime_error(
+        "no TF from '" + source_frame + "' to '" + target_frame +
+        "': " + exception.what());
+  }
+
+  const auto& rotation = transform.transform.rotation;
+  Eigen::Quaterniond quaternion(
+      rotation.w, rotation.x, rotation.y, rotation.z);
+  if (!quaternion.coeffs().allFinite() ||
+      quaternion.norm() < 1e-9) {
+    throw std::runtime_error(
+        "TF from '" + source_frame + "' to '" + target_frame +
+        "' has an invalid rotation");
+  }
+  quaternion.normalize();
+
+  const auto& translation = transform.transform.translation;
+  Eigen::Isometry3d result = Eigen::Isometry3d::Identity();
+  result.linear() = quaternion.toRotationMatrix();
+  result.translation() =
+      Eigen::Vector3d(translation.x, translation.y, translation.z);
+  if (!result.matrix().allFinite()) {
+    throw std::runtime_error(
+        "TF from '" + source_frame + "' to '" + target_frame +
+        "' contains a non-finite value");
+  }
+  return result;
+}
+
+Sophus::SE3d Onion_LO::PoseInPublishedChildFrame(
+    const Sophus::SE3d& tracked_pose,
+    const std::string& tracking_frame) {
+  const std::string normalized_tracking_frame =
+      NormalizeFrameId(tracking_frame);
+  if (normalized_tracking_frame.empty() ||
+      normalized_tracking_frame == child_frame_) {
+    return tracked_pose;
+  }
+
+  if (!output_transform_cached_ ||
+      output_transform_source_frame_ != normalized_tracking_frame) {
+    output_from_tracking_ = LookupStaticTransform(
+        child_frame_, normalized_tracking_frame,
+        ros::Duration(vehicle_crop_tf_timeout_sec_));
+    output_transform_source_frame_ = normalized_tracking_frame;
+    output_transform_cached_ = true;
+  }
+
+  // lookupTransform(child, tracking) returns child_T_tracking. Onion's pose
+  // is odom_T_tracking, so publishing the child requires tracking_T_child.
+  const Eigen::Isometry3d tracking_from_output =
+      output_from_tracking_.inverse();
+  const Sophus::SE3d tracking_to_output(
+      tracking_from_output.rotation(),
+      tracking_from_output.translation());
+  return tracked_pose * tracking_to_output;
+}
+
+Sophus::SE3d Onion_LO::PoseInTrackingFrame(
+    const Sophus::SE3d& published_child_pose) {
+  if (tracking_frame_ == child_frame_) {
+    return published_child_pose;
+  }
+
+  if (!output_transform_cached_ ||
+      output_transform_source_frame_ != tracking_frame_) {
+    output_from_tracking_ = LookupStaticTransform(
+        child_frame_, tracking_frame_,
+        ros::Duration(vehicle_crop_tf_timeout_sec_));
+    output_transform_source_frame_ = tracking_frame_;
+    output_transform_cached_ = true;
+  }
+
+  // Public initial poses always describe child_frame_ in odom_frame_.
+  // lookupTransform(child, tracking) is child_T_tracking, therefore:
+  // odom_T_tracking = odom_T_child * child_T_tracking.
+  const Sophus::SE3d child_to_tracking(
+      output_from_tracking_.rotation(),
+      output_from_tracking_.translation());
+  return published_child_pose * child_to_tracking;
+}
+
 void Onion_LO::LiDAR_odom(
     const sensor_msgs::PointCloud2::ConstPtr& lidar_msg) {
   const auto begin = std::chrono::high_resolution_clock::now();
@@ -869,6 +1122,8 @@ void Onion_LO::LiDAR_odom(
   auto deskew_scan = std::move(trajLOdometry_->deskew_points);
   trajLOdometry_->deskew_points.clear();
   const Sophus::SE3d new_pose = trajLOdometry_->current_pose;
+  const Sophus::SE3d published_pose = PoseInPublishedChildFrame(
+      new_pose, lidar_msg->header.frame_id);
 
   bool persistent_map_updated = false;
   if (!localization_mode_ && save_pcd_en_ && !deskew_scan.empty()) {
@@ -926,8 +1181,9 @@ void Onion_LO::LiDAR_odom(
     complete_map_->clear();
   }
 
-  const Eigen::Vector3d translation = new_pose.translation();
-  const Eigen::Quaterniond quaternion = new_pose.unit_quaternion();
+  const Eigen::Vector3d translation = published_pose.translation();
+  const Eigen::Quaterniond quaternion =
+      published_pose.unit_quaternion();
 
   if (metrics_output_.is_open()) {
     const double wall_now_sec = ros::WallTime::now().toSec();
@@ -1254,6 +1510,15 @@ bool Onion_LO::SaveMapService(std_srvs::Trigger::Request&,
 
 void Onion_LO::InitialPoseCallback(
     const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg) {
+  const std::string reference_frame =
+      NormalizeFrameId(msg->header.frame_id);
+  if (!reference_frame.empty() && reference_frame != odom_frame_) {
+    ROS_ERROR_STREAM(
+        "Rejected /initialpose in reference frame '"
+        << msg->header.frame_id << "'; Onion's loaded map frame is '"
+        << odom_frame_ << "'");
+    return;
+  }
   Eigen::Quaterniond quaternion(
       msg->pose.pose.orientation.w, msg->pose.pose.orientation.x,
       msg->pose.pose.orientation.y, msg->pose.pose.orientation.z);
@@ -1266,15 +1531,51 @@ void Onion_LO::InitialPoseCallback(
       msg->pose.pose.position.x, msg->pose.pose.position.y,
       msg->pose.pose.position.z);
 
-  if (trajLOdometry_->SetInitialPose(
-          Sophus::SE3d(quaternion.toRotationMatrix(), translation))) {
-    initial_pose_received_ = true;
-    path_msg_.poses.clear();
-    metrics_timing_initialized_ = false;
-    ++metrics_reset_id_;
-    ROS_INFO("Localization state reset from /initialpose");
-  } else {
-    ROS_WARN("/initialpose is only accepted in localization mode");
+  try {
+    const Sophus::SE3d child_pose(
+        quaternion.toRotationMatrix(), translation);
+    const Sophus::SE3d tracking_pose =
+        PoseInTrackingFrame(child_pose);
+    if (trajLOdometry_->SetInitialPose(tracking_pose)) {
+      initial_pose_received_ = true;
+      path_msg_.poses.clear();
+      metrics_timing_initialized_ = false;
+      ++metrics_reset_id_;
+      std::deque<sensor_msgs::PointCloud2::ConstPtr> replay_clouds;
+      std::size_t dropped_clouds = 0;
+      const ros::Time replay_threshold =
+          msg->header.stamp.isZero()
+              ? ros::Time(0)
+              : msg->header.stamp -
+                    ros::Duration(initial_pose_replay_tolerance_sec_);
+      for (const auto& cloud : initial_pose_cloud_buffer_) {
+        if (cloud && cloud->header.stamp >= replay_threshold) {
+          replay_clouds.push_back(cloud);
+        } else {
+          ++dropped_clouds;
+        }
+      }
+      initial_pose_cloud_buffer_.clear();
+      ROS_INFO_STREAM(
+          "Localization state reset from public /initialpose ["
+          << odom_frame_ << " -> " << child_frame_
+          << "]; converted internally to " << tracking_frame_
+          << "; replaying " << replay_clouds.size()
+          << " buffered LiDAR frames from stamp "
+          << std::fixed << std::setprecision(6)
+          << msg->header.stamp.toSec()
+          << " (dropped " << dropped_clouds << " older frames)");
+      for (const auto& cloud : replay_clouds) {
+        if (!ros::ok()) break;
+        PointCloudCallback(cloud);
+      }
+    } else {
+      ROS_WARN("/initialpose is only accepted in localization mode");
+    }
+  } catch (const std::exception& error) {
+    ROS_ERROR_STREAM(
+        "Rejected /initialpose because child-to-tracking TF conversion "
+        "failed: " << error.what());
   }
 }
 

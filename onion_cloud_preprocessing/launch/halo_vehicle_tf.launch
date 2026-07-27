@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- tf/static_transform_publisher arguments are x y z yaw pitch roll. -->
+  <node pkg="tf" type="static_transform_publisher" name="gps_in_base"
+        args="0 0 0 0 0 0 vehicle_link gps_link 100"/>
+  <node pkg="tf" type="static_transform_publisher"
+        name="camera_in_top_lidar"
+        args="-0.15 0 1 0 0 0 fusion_link camera_link 100"/>
+  <node pkg="tf" type="static_transform_publisher" name="top_in_fusion"
+        args="-0.15 0 0.9 -2.3562 0.2618 3.1415926 fusion_link rslidar_top 100"/>
+  <node pkg="tf" type="static_transform_publisher"
+        name="fusion_in_left_vehicle"
+        args="1.6 0 0 0 0 0 vehicle_link fusion_link 100"/>
+</launch>

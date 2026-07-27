@@ -1,0 +1,94 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="map_path"
+       default="$(find onion_lo_plus)/results/onion_map.pcd"/>
+  <arg name="database_manifest"
+       default="$(find onion_lo_plus)/results/scancontext_database_deskewed_v2/manifest.csv"/>
+  <arg name="config_file"
+       default="$(find onion_lo_plus)/config/livox.yaml"/>
+  <arg name="scancontext_config"
+       default="$(find onion_relocalization)/config/halo_outdoor.yaml"/>
+  <arg name="map_frame" default="odom"/>
+  <arg name="lidar_topic" default="/livox/lidar"/>
+  <arg name="relocalization_lidar_topic" default="$(arg lidar_topic)"/>
+  <arg name="onion_lidar_topic" default="$(arg lidar_topic)"/>
+  <arg name="relocalization_pose_frame" default=""/>
+  <arg name="relative_odom_topic" default=""/>
+  <arg name="enable_point_deskew"
+       default="$(eval arg('relative_odom_topic') != '')"/>
+  <arg name="require_point_deskew"
+       default="$(eval arg('relative_odom_topic') != '')"/>
+  <arg name="require_motion_compensation"
+       default="$(eval arg('relative_odom_topic') != '')"/>
+  <arg name="assume_static_without_odometry"
+       default="$(eval arg('relative_odom_topic') == '')"/>
+  <arg name="top_k" default="3"/>
+  <arg name="accumulation_sec" default="1.5"/>
+  <arg name="bagfile" default=""/>
+  <arg name="bag_start" default="0.0"/>
+  <!-- A v2 database reads persisted descriptors and lazy-loads only the Top-K
+       candidate PCDs. Keep a longer delay only for a legacy manifest. -->
+  <arg name="bag_delay" default="5.0"/>
+  <arg name="bag_rate" default="1.0"/>
+  <arg name="visualize" default="true"/>
+  <arg name="loaded_map_max_points_per_voxel" default="150"/>
+  <arg name="initial_pose_cloud_buffer_size" default="50"/>
+  <arg name="initial_pose_replay_tolerance_sec" default="0.05"/>
+  <arg name="traj_voxel_size" default="1.0"/>
+  <arg name="metrics_output_path" default=""/>
+  <arg name="relocalization_metrics_output_path" default=""/>
+  <arg name="diagnostic_output_directory"
+       default="$(find onion_lo_plus)/results/diagnostics"/>
+
+  <node pkg="onion_relocalization"
+        type="onion_scancontext_relocalization_node"
+        name="onion_scancontext_relocalization"
+        output="screen"
+        required="true">
+    <rosparam command="load" file="$(arg scancontext_config)"/>
+    <param name="database_manifest" value="$(arg database_manifest)"/>
+    <param name="lidar_topic"
+           value="$(arg relocalization_lidar_topic)"/>
+    <param name="query_frame"
+           value="$(arg relocalization_pose_frame)"/>
+    <param name="odom_topic" value="$(arg relative_odom_topic)"/>
+    <param name="map_frame" value="$(arg map_frame)"/>
+    <param name="enable_point_deskew"
+           value="$(arg enable_point_deskew)"/>
+    <param name="require_point_deskew"
+           value="$(arg require_point_deskew)"/>
+    <param name="require_motion_compensation"
+           value="$(arg require_motion_compensation)"/>
+    <param name="assume_static_without_odometry"
+           value="$(arg assume_static_without_odometry)"/>
+    <param name="top_k" value="$(arg top_k)"/>
+    <param name="accumulation_sec" value="$(arg accumulation_sec)"/>
+    <param name="metrics_output_path"
+           value="$(arg relocalization_metrics_output_path)"/>
+  </node>
+
+  <include file="$(find onion_lo_plus)/launch/livox.launch">
+    <arg name="config_file" value="$(arg config_file)"/>
+    <arg name="lidar_topic" value="$(arg onion_lidar_topic)"/>
+    <arg name="bagfile" value="$(arg bagfile)"/>
+    <arg name="bag_start" value="$(arg bag_start)"/>
+    <arg name="bag_delay" value="$(arg bag_delay)"/>
+    <arg name="bag_rate" value="$(arg bag_rate)"/>
+    <arg name="visualize" value="$(arg visualize)"/>
+    <arg name="localization_mode" value="true"/>
+    <arg name="wait_for_initial_pose" value="true"/>
+    <arg name="initial_pose_cloud_buffer_size"
+         value="$(arg initial_pose_cloud_buffer_size)"/>
+    <arg name="initial_pose_replay_tolerance_sec"
+         value="$(arg initial_pose_replay_tolerance_sec)"/>
+    <arg name="traj_voxel_size" value="$(arg traj_voxel_size)"/>
+    <arg name="map_path" value="$(arg map_path)"/>
+    <arg name="loaded_map_max_points_per_voxel"
+         value="$(arg loaded_map_max_points_per_voxel)"/>
+    <arg name="publish_global_map" value="false"/>
+    <arg name="save_map_on_shutdown" value="false"/>
+    <arg name="metrics_output_path" value="$(arg metrics_output_path)"/>
+    <arg name="diagnostic_output_directory"
+         value="$(arg diagnostic_output_directory)"/>
+  </include>
+</launch>

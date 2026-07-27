@@ -25,8 +25,10 @@
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <std_srvs/Trigger.h>
+#include <tf2_ros/buffer.h>
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/transform_listener.h>
 
 #include <ros_common_lib.h>
 #include <trajlo/common_type.h>
@@ -44,6 +46,14 @@ class Onion_LO {
   void PointCloudCallback(const sensor_msgs::PointCloud2::ConstPtr& msg);
   void LiDAR_odom(const sensor_msgs::PointCloud2::ConstPtr& lidar_msg);
   traj::Scan::Ptr Msg2Scan(const sensor_msgs::PointCloud2& msg);
+  Eigen::Isometry3d LookupStaticTransform(
+      const std::string& target_frame, const std::string& source_frame,
+      const ros::Duration& timeout);
+  Sophus::SE3d PoseInPublishedChildFrame(
+      const Sophus::SE3d& tracked_pose,
+      const std::string& tracking_frame);
+  Sophus::SE3d PoseInTrackingFrame(
+      const Sophus::SE3d& published_child_pose);
   PointCloudXYZRGB::Ptr convertToPCL(
       const std::vector<traj::PointXYZI>& input, Vector3dVector& cloud_xyz);
 
@@ -65,6 +75,8 @@ class Onion_LO {
 
   ros::NodeHandle nh_;
   ros::NodeHandle pnh_;
+  tf2_ros::Buffer tf_buffer_;
+  tf2_ros::TransformListener tf_listener_;
   ros::Subscriber sub_lidar_;
   ros::Subscriber initial_pose_subscriber_;
   ros::Publisher odom_publisher_;
@@ -87,6 +99,7 @@ class Onion_LO {
 
   std::string odom_frame_ = "odom";
   std::string child_frame_ = "base_link";
+  std::string tracking_frame_ = "base_link";
   std::string lidar_topic_ = "/livox/lidar";
   std::string map_path_;
 
@@ -98,8 +111,36 @@ class Onion_LO {
   bool localization_mode_ = false;
   bool wait_for_initial_pose_ = false;
   bool initial_pose_received_ = true;
+  int initial_pose_cloud_buffer_size_ = 50;
+  double initial_pose_replay_tolerance_sec_ = 0.05;
+  std::deque<sensor_msgs::PointCloud2::ConstPtr>
+      initial_pose_cloud_buffer_;
   bool publish_global_map_ = true;
   bool reject_line_like_map_ = true;
+  bool publish_identity_base_link_tf_ = true;
+
+  bool vehicle_crop_enabled_ = false;
+  bool vehicle_crop_fail_if_tf_unavailable_ = true;
+  std::string vehicle_crop_frame_ = "vehicle_link";
+  double vehicle_crop_min_x_ = -1.0;
+  double vehicle_crop_max_x_ = 1.0;
+  double vehicle_crop_min_y_ = -1.0;
+  double vehicle_crop_max_y_ = 1.0;
+  double vehicle_crop_min_z_ = -1.0;
+  double vehicle_crop_max_z_ = 2.0;
+  double vehicle_crop_tf_timeout_sec_ = 1.0;
+  bool vehicle_crop_transform_cached_ = false;
+  std::string vehicle_crop_transform_source_frame_;
+  Eigen::Isometry3d vehicle_crop_from_source_ =
+      Eigen::Isometry3d::Identity();
+  std::size_t vehicle_crop_total_finite_points_ = 0;
+  std::size_t vehicle_crop_total_removed_points_ = 0;
+
+  bool output_transform_cached_ = false;
+  std::string output_transform_source_frame_;
+  Eigen::Isometry3d output_from_tracking_ =
+      Eigen::Isometry3d::Identity();
+
   double global_map_voxel_size_ = 0.10;
   double minimum_secondary_extent_ratio_ = 0.02;
   double max_mapping_linear_speed_ = 3.0;

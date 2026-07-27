@@ -1,0 +1,53 @@
+# Runtime front-end. The official Scan Context C++ implementation uses its
+# published fixed 20 rings, 60 sectors, 80 m radius and 0.5 m voxel filter.
+auto_relocalize: true
+relocalize_once: true
+accumulation_sec: 1.5
+minimum_accumulated_frames: 8
+retry_period_sec: 2.0
+top_k: 3
+
+# A moving 1.5 s query must use a time-aligned local odometry/INS stream.
+# The launch file enables these safeguards automatically when odom_topic is
+# non-empty. It leaves them off only for a deliberately stationary test.
+require_motion_compensation: true
+assume_static_without_odometry: false
+maximum_odom_time_error_sec: 0.10
+
+# Tanwei/Halo PointCloud2 stores an absolute point stamp as
+# t_sec + t_usec * 1e-6. Point-level deskew is applied before the 1.5 s
+# frame-to-frame accumulation. A different driver must override these fields.
+enable_point_deskew: true
+require_point_deskew: true
+point_time_field: t_sec
+point_time_scale: 1.0
+point_time_secondary_field: t_usec
+point_time_secondary_scale: 0.000001
+point_time_is_offset: false
+maximum_pose_interpolation_gap_sec: 0.15
+maximum_point_time_distance_sec: 1.0
+minimum_deskewed_fraction: 0.95
+pending_cloud_limit: 50
+
+minimum_range_m: 2.0
+maximum_range_m: 80.0
+minimum_z_m: -4.0
+maximum_z_m: 12.0
+fine_leaf_size: 0.20
+coarse_leaf_size: 0.60
+
+kiss_voxel_size: 0.60
+kiss_max_correspondences: 3000
+kiss_use_quatro: true
+# Keep KISS-Matcher's upstream map-registration default. Besides improving
+# feature ambiguity rejection, it deterministically keeps the best descriptor
+# ratios instead of randomly truncating a larger correspondence set.
+kiss_use_ratio_test: true
+
+gicp_max_iterations: 30
+gicp_max_correspondence_distance: 0.80
+
+minimum_kiss_inliers: 100
+validation_distance_m: 0.30
+minimum_inlier_fraction: 0.45
+maximum_rmse_m: 0.18

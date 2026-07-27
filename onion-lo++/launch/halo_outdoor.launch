@@ -6,6 +6,11 @@
   <!-- 0.25x is a conservative default for the Jetson-class target. -->
   <arg name="bag_rate" default="0.25"/>
   <arg name="visualize" default="false"/>
+  <arg name="raw_lidar_topic" default="/fusion_rslidar_points"/>
+  <arg name="filtered_sensor_topic"
+       default="/onion/points_filtered_sensor"/>
+  <arg name="filtered_vehicle_topic"
+       default="/onion/points_filtered_vehicle"/>
   <arg name="map_path"
        default="results/tanwei_tw360_halo_outdoor_map.pcd"/>
   <arg name="publish_global_map" default="true"/>
@@ -13,10 +18,49 @@
   <arg name="metrics_output_path" default=""/>
   <arg name="diagnostic_output_directory"
        default="results/diagnostics/halo_outdoor"/>
+  <arg name="publish_vehicle_static_tf" default="true"/>
+  <arg name="vehicle_crop_enabled" default="true"/>
+  <arg name="vehicle_crop_frame" default="vehicle_link"/>
+  <arg name="vehicle_crop_min_x" default="-0.6"/>
+  <arg name="vehicle_crop_max_x" default="1.65"/>
+  <arg name="vehicle_crop_min_y" default="-0.7"/>
+  <arg name="vehicle_crop_max_y" default="0.7"/>
+  <arg name="vehicle_crop_min_z" default="-0.5"/>
+  <arg name="vehicle_crop_max_z" default="2.5"/>
+  <arg name="vehicle_crop_tf_timeout_sec" default="2.0"/>
+  <arg name="vehicle_crop_fail_if_tf_unavailable" default="true"/>
+  <arg name="onion_lidar_topic"
+       value="$(eval arg('filtered_sensor_topic') if arg('vehicle_crop_enabled') else arg('raw_lidar_topic'))"/>
+
+  <!-- One shared preprocessor guarantees that mapping, localization and
+       either relocalizer consume the same retained physical points. -->
+  <group if="$(arg vehicle_crop_enabled)">
+    <include file="$(find onion_cloud_preprocessing)/launch/halo_vehicle_preprocessing.launch">
+      <arg name="raw_lidar_topic" value="$(arg raw_lidar_topic)"/>
+      <arg name="filtered_sensor_topic"
+           value="$(arg filtered_sensor_topic)"/>
+      <arg name="filtered_vehicle_topic"
+           value="$(arg filtered_vehicle_topic)"/>
+      <arg name="publish_vehicle_static_tf"
+           value="$(arg publish_vehicle_static_tf)"/>
+      <arg name="vehicle_frame" value="$(arg vehicle_crop_frame)"/>
+      <arg name="min_x" value="$(arg vehicle_crop_min_x)"/>
+      <arg name="max_x" value="$(arg vehicle_crop_max_x)"/>
+      <arg name="min_y" value="$(arg vehicle_crop_min_y)"/>
+      <arg name="max_y" value="$(arg vehicle_crop_max_y)"/>
+      <arg name="min_z" value="$(arg vehicle_crop_min_z)"/>
+      <arg name="max_z" value="$(arg vehicle_crop_max_z)"/>
+      <arg name="tf_timeout_sec"
+           value="$(arg vehicle_crop_tf_timeout_sec)"/>
+      <arg name="fail_if_tf_unavailable"
+           value="$(arg vehicle_crop_fail_if_tf_unavailable)"/>
+    </include>
+  </group>
 
   <include file="$(find onion_lo_plus)/launch/livox.launch">
     <arg name="config_file"
          value="$(find onion_lo_plus)/config/halo_outdoor.yaml"/>
+    <arg name="lidar_topic" value="$(arg onion_lidar_topic)"/>
     <arg name="bagfile" value="$(arg bagfile)"/>
     <arg name="bag_start" value="$(arg bag_start)"/>
     <arg name="bag_delay" value="$(arg bag_delay)"/>
@@ -30,5 +74,19 @@
     <arg name="metrics_output_path" value="$(arg metrics_output_path)"/>
     <arg name="diagnostic_output_directory"
          value="$(arg diagnostic_output_directory)"/>
+    <!-- The shared node already cropped this exact cloud. Keep Onion's
+         internal crop as a direct-launch fallback, not a second pass. -->
+    <arg name="vehicle_crop_enabled" value="false"/>
+    <arg name="vehicle_crop_frame" value="$(arg vehicle_crop_frame)"/>
+    <arg name="vehicle_crop_min_x" value="$(arg vehicle_crop_min_x)"/>
+    <arg name="vehicle_crop_max_x" value="$(arg vehicle_crop_max_x)"/>
+    <arg name="vehicle_crop_min_y" value="$(arg vehicle_crop_min_y)"/>
+    <arg name="vehicle_crop_max_y" value="$(arg vehicle_crop_max_y)"/>
+    <arg name="vehicle_crop_min_z" value="$(arg vehicle_crop_min_z)"/>
+    <arg name="vehicle_crop_max_z" value="$(arg vehicle_crop_max_z)"/>
+    <arg name="vehicle_crop_tf_timeout_sec"
+         value="$(arg vehicle_crop_tf_timeout_sec)"/>
+    <arg name="vehicle_crop_fail_if_tf_unavailable"
+         value="$(arg vehicle_crop_fail_if_tf_unavailable)"/>
   </include>
 </launch>
