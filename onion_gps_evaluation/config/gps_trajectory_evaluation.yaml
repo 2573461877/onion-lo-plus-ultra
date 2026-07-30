@@ -1,0 +1,52 @@
+# Input topics. Change defaults here before repeated tests so launch commands
+# stay short. The GJA660 driver remains responsible for binary parsing.
+onion_odom_topic: /onion_lo_plus_node/odometry
+gps_odom_topic: /gps/evaluation/odom_utm
+gps_fix_topic: /gps/evaluation/fix
+gps_position_valid_topic: /gps/evaluation/position_valid
+gps_heading_valid_topic: /gps/evaluation/heading_valid
+initialpose_topic: /initialpose
+relocalization_status_topic: /onion_scancontext_relocalization/status
+
+# odom_utm uses the receiver's rear-axle-centre UTM pose directly. Do not add
+# another antenna-to-rear-axle translation in this package.
+# navsat_fix converts WGS84 to a local ENU frame around the configured origin
+# or, when all three values below are omitted, the first accepted fix.
+gps_position_source: odom_utm
+# navsat_reference_latitude_deg: 39.900000
+# navsat_reference_longitude_deg: 116.300000
+# navsat_reference_altitude_m: 50.0
+
+# std_msgs/Bool contains only true or false. Before the first Bool message is
+# received, the C++ node internally marks the validity state as "not_received".
+require_gps_position_valid: true
+require_gps_heading_valid_for_yaw: true
+
+# Timestamp association and fixed planar transform estimation.
+max_time_difference_sec: 0.15
+max_interpolation_gap_sec: 0.30
+minimum_matched_poses: 30
+minimum_registration_poses: 20
+minimum_registration_baseline_m: 5.0
+robust_outlier_threshold_m: 0.75
+robust_ransac_iterations: 300
+random_seed: 7
+
+# Used only by segmented registration/evaluation. The launch file exposes both
+# values as arguments and therefore its defaults override these two YAML
+# values. Edit the launch defaults for repeated runs or pass a one-off arg.
+# A positive duration takes priority; otherwise the first fraction of matched
+# poses is used for registration and strictly later poses are evaluated.
+registration_fraction: 0.30
+registration_duration_sec: 0.0
+
+# Accuracy and relocalization metrics.
+accuracy_thresholds_m: [0.05, 0.10, 0.20]
+rpe_delta_sec: 1.0
+convergence_threshold_m: 0.20
+convergence_hold_samples: 10
+relocalization_timeout_sec: 10.0
+
+# Normal runs finalize through the node-private service or Ctrl-C. Synthetic
+# regression overrides this to true so roslaunch exits after writing reports.
+shutdown_after_finalize: false

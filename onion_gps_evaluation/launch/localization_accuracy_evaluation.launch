@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="config_file"
+       default="$(find onion_gps_evaluation)/config/gps_trajectory_evaluation.yaml"/>
+  <arg name="alignment_input_path"
+       default="$(find onion_lo_plus)/results/gps_evaluation/registration/map_to_gps_alignment.json"/>
+  <arg name="output_directory"
+       default="$(find onion_lo_plus)/results/gps_evaluation/localization_evaluation"/>
+
+  <node pkg="onion_gps_evaluation"
+        type="localization_accuracy_evaluator_node"
+        name="onion_localization_accuracy_evaluation"
+        output="screen"
+        clear_params="true">
+    <rosparam command="load" file="$(arg config_file)"/>
+    <param name="alignment_input_path"
+           value="$(arg alignment_input_path)"/>
+    <param name="output_directory" value="$(arg output_directory)"/>
+  </node>
+</launch>

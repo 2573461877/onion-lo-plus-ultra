@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="output_directory"
+       default="/tmp/onion_gps_evaluation_cpp_synthetic"/>
+  <arg name="duration_sec" default="12.0"/>
+  <arg name="rate_hz" default="20.0"/>
+
+  <include file="$(find onion_gps_evaluation)/launch/segmented_registration_evaluation.launch">
+    <arg name="output_directory" value="$(arg output_directory)"/>
+    <arg name="alignment_output_path"
+         value="$(arg output_directory)/map_to_gps_alignment.json"/>
+    <arg name="shutdown_after_finalize" value="true"/>
+  </include>
+
+  <node pkg="onion_gps_evaluation"
+        type="synthetic_trajectory_publisher_node"
+        name="synthetic_gps_trajectory_publisher"
+        output="screen">
+    <param name="duration_sec" value="$(arg duration_sec)"/>
+    <param name="rate_hz" value="$(arg rate_hz)"/>
+    <param name="finalize_service"
+           value="/onion_segmented_registration_evaluation/finalize"/>
+  </node>
+</launch>

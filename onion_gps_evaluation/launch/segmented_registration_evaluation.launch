@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="config_file"
+       default="$(find onion_gps_evaluation)/config/gps_trajectory_evaluation.yaml"/>
+  <arg name="output_directory"
+       default="$(find onion_lo_plus)/results/gps_evaluation/segmented_evaluation"/>
+  <arg name="alignment_output_path"
+       default="$(arg output_directory)/map_to_gps_alignment.json"/>
+  <arg name="registration_fraction" default="0.30"/>
+  <arg name="registration_duration_sec" default="0.0"/>
+  <arg name="shutdown_after_finalize" default="false"/>
+
+  <node pkg="onion_gps_evaluation"
+        type="segmented_registration_evaluator_node"
+        name="onion_segmented_registration_evaluation"
+        output="screen"
+        clear_params="true">
+    <rosparam command="load" file="$(arg config_file)"/>
+    <param name="output_directory" value="$(arg output_directory)"/>
+    <param name="alignment_output_path"
+           value="$(arg alignment_output_path)"/>
+    <param name="registration_fraction"
+           value="$(arg registration_fraction)"/>
+    <param name="registration_duration_sec"
+           value="$(arg registration_duration_sec)"/>
+    <param name="shutdown_after_finalize"
+           value="$(arg shutdown_after_finalize)"/>
+  </node>
+</launch>

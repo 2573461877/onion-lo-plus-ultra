@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="config_file"
+       default="$(find onion_gps_evaluation)/config/gps_trajectory_evaluation.yaml"/>
+  <arg name="output_directory"
+       default="$(find onion_lo_plus)/results/gps_evaluation/registration"/>
+  <arg name="alignment_output_path"
+       default="$(arg output_directory)/map_to_gps_alignment.json"/>
+
+  <node pkg="onion_gps_evaluation"
+        type="trajectory_registration_node"
+        name="onion_gps_trajectory_registration"
+        output="screen"
+        clear_params="true">
+    <rosparam command="load" file="$(arg config_file)"/>
+    <param name="output_directory" value="$(arg output_directory)"/>
+    <param name="alignment_output_path"
+           value="$(arg alignment_output_path)"/>
+  </node>
+</launch>
