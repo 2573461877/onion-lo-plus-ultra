@@ -18,6 +18,9 @@ replaceable global relocalization for ARM64 deployment.
 - `hdl_global_localization`: the HDL engine vendored as a normal Catkin
   package. It is no longer a Git submodule and performs no build-time source
   download.
+- `fast_lio_localization_humanoid`: an independently launchable alternative
+  FAST-LIO mapping and optional Open3D fixed-map localization package, adapted
+  to reuse the workspace `livox_ros_driver2` and its MID-360 PointCloud2.
 
 The deployment workspace supplies the ROS 1 LiDAR driver locally. Bags, maps,
 diagnostics, generated Scan Context databases, build output, and driver source
@@ -60,6 +63,17 @@ Save the current global map:
 ```bash
 rosservice call /onion_lo_plus_node/save_map
 ```
+
+Independent FAST-LIO MID-360 mapping:
+
+```bash
+roslaunch fast_lio_localization_humanoid mapping_mid360.launch \
+  save_map:=true
+```
+
+Its integration notes, driver comparison, Open3D dependency, topic chain,
+mapping output, and fixed-map localization command are documented in
+`fast_lio_localization_humanoid/README.md`.
 
 ## Global relocalization
 

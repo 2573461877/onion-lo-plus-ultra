@@ -1,0 +1,62 @@
+common:
+  lid_topic: "/livox/lidar"
+  imu_topic: "/livox/imu"
+  odom_frame: "camera_init"
+  body_frame: "body"
+  time_sync_en: false
+  time_offset_lidar_to_imu: 0.0
+  lidar_queue_size: 4
+  imu_queue_size: 2000
+
+preprocess:
+  # 5 is the Driver2 MID-360 sensor_msgs/PointCloud2 path added by this
+  # integration. Required fields: x, y, z, intensity, tag, line, timestamp.
+  lidar_type: 5
+  scan_line: 4
+  scan_rate: 10
+  blind: 0.5
+  # livox_ros_driver2 xfer_format=0 publishes FLOAT64 absolute nanoseconds.
+  timestamp_unit: 3
+  point_time_is_offset: false
+
+mapping:
+  acc_cov: 0.1
+  gyr_cov: 0.1
+  b_acc_cov: 0.0001
+  b_gyr_cov: 0.0001
+  fov_degree: 360
+  det_range: 100.0
+  extrinsic_est_en: false
+  # MID-360 internal LiDAR-to-IMU transform from the upstream MID-360 setup.
+  # Recalibrate before using another sensor/mounting arrangement.
+  extrinsic_T: [-0.011, -0.02329, 0.04412]
+  extrinsic_R: [1.0, 0.0, 0.0,
+                0.0, 1.0, 0.0,
+                0.0, 0.0, 1.0]
+
+publish:
+  path_en: true
+  scan_publish_en: true
+  dense_publish_en: false
+  scan_bodyframe_pub_en: false
+  queue_size: 10
+  registered_topic: "/fast_lio_humanoid/cloud_registered"
+  registered_body_topic: "/fast_lio_humanoid/cloud_registered_body"
+  effected_topic: "/fast_lio_humanoid/cloud_effected"
+  map_topic: "/fast_lio_humanoid/map"
+  odometry_topic: "/fast_lio_humanoid/odometry"
+  path_topic: "/fast_lio_humanoid/path"
+
+pcd_save:
+  pcd_save_en: false
+  # -1 accumulates one final map and writes it when the node receives SIGINT.
+  interval: -1
+  output_directory: "/tmp/fast_lio_localization_humanoid"
+
+feature_extract_enable: false
+point_filter_num: 3
+max_iteration: 3
+filter_size_surf: 0.5
+filter_size_map: 0.5
+cube_side_length: 1000.0
+runtime_pos_log_enable: false

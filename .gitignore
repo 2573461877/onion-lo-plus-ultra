@@ -63,11 +63,7 @@ compile_commands.json
 # The Livox ROS Driver 2 source is installed locally on deployment devices.
 /livox_ros_driver2/
 
-# Documentation and presentation media are intentionally not published
-/doc/
-/onion-lo++/include/onion/tbb/
-/onion-lo++/include/onion/.github/
-/onion-lo++/include/onion/.codecov.yml
+# Generated documentation media are not published.
 *.png
 *.gif
 *.jpg
@@ -100,4 +96,4 @@ vcpkg_installed/
 *.log
 *.out
 core
-core.*
+core.[0-9]*

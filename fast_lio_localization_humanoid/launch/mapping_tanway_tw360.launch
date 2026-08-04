@@ -1,0 +1,17 @@
+<launch>
+  <arg name="config" default="$(find fast_lio_localization_humanoid)/config/tanway_tw360.yaml"/>
+  <arg name="lid_topic" default="/fusion_rslidar_points"/>
+  <arg name="imu_topic" default="/tanwaylidar_imu"/>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="save_map" default="false"/>
+  <arg name="output_directory" default="/tmp/fast_lio_localization_humanoid"/>
+
+  <include file="$(find fast_lio_localization_humanoid)/launch/mapping_mid360.launch">
+    <arg name="config" value="$(arg config)"/>
+    <arg name="lid_topic" value="$(arg lid_topic)"/>
+    <arg name="imu_topic" value="$(arg imu_topic)"/>
+    <arg name="use_sim_time" value="$(arg use_sim_time)"/>
+    <arg name="save_map" value="$(arg save_map)"/>
+    <arg name="output_directory" value="$(arg output_directory)"/>
+  </include>
+</launch>

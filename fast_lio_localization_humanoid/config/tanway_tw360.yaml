@@ -1,0 +1,61 @@
+common:
+  lid_topic: "/fusion_rslidar_points"
+  imu_topic: "/tanwaylidar_imu"
+  odom_frame: "camera_init"
+  body_frame: "rslidar_top"
+  time_sync_en: false
+  time_offset_lidar_to_imu: 0.0
+  lidar_queue_size: 10
+  imu_queue_size: 3000
+
+preprocess:
+  # 6 parses the recorded Tanway layout:
+  # x/y/z/intensity, channel and absolute t_sec + t_usec * 1e-6.
+  lidar_type: 6
+  scan_line: 48
+  scan_rate: 10
+  blind: 1.0
+  timestamp_unit: 0
+  point_time_is_offset: false
+
+mapping:
+  acc_cov: 0.1
+  gyr_cov: 0.1
+  b_acc_cov: 0.0001
+  b_gyr_cov: 0.0001
+  fov_degree: 360
+  det_range: 100.0
+  extrinsic_est_en: false
+  # The bag has no TF or calibration topic relating TanwayIMU to rslidar_top.
+  # Identity is a test-only starting point for the apparently integrated IMU;
+  # replace it with a measured LiDAR-to-IMU transform for production use.
+  extrinsic_T: [0.0, 0.0, 0.0]
+  extrinsic_R: [1.0, 0.0, 0.0,
+                0.0, 1.0, 0.0,
+                0.0, 0.0, 1.0]
+
+publish:
+  path_en: true
+  scan_publish_en: true
+  dense_publish_en: false
+  scan_bodyframe_pub_en: false
+  queue_size: 10
+  registered_topic: "/fast_lio_humanoid/cloud_registered"
+  registered_body_topic: "/fast_lio_humanoid/cloud_registered_body"
+  effected_topic: "/fast_lio_humanoid/cloud_effected"
+  map_topic: "/fast_lio_humanoid/map"
+  odometry_topic: "/fast_lio_humanoid/odometry"
+  path_topic: "/fast_lio_humanoid/path"
+
+pcd_save:
+  pcd_save_en: false
+  interval: -1
+  output_directory: "/tmp/fast_lio_localization_humanoid"
+
+feature_extract_enable: false
+point_filter_num: 3
+max_iteration: 3
+filter_size_surf: 0.5
+filter_size_map: 0.5
+cube_side_length: 1000.0
+runtime_pos_log_enable: false

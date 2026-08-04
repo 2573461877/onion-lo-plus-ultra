@@ -122,7 +122,6 @@ catkin_install_python(
       scripts/analyze_localization_metrics.py
       scripts/check_pointcloud_bag.py
       scripts/monitor_process_resources.py
-      scripts/replicate_ascii_pcd.py
     DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 

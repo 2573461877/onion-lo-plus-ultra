@@ -1,0 +1,34 @@
+<launch>
+  <arg name="map" default=""/>
+  <arg name="lid_topic" default="/livox/lidar"/>
+  <arg name="imu_topic" default="/livox/imu"/>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="start_mapping" default="true"/>
+
+  <include if="$(arg start_mapping)"
+           file="$(find fast_lio_localization_humanoid)/launch/mapping_mid360.launch">
+    <arg name="lid_topic" value="$(arg lid_topic)"/>
+    <arg name="imu_topic" value="$(arg imu_topic)"/>
+    <arg name="use_sim_time" value="$(arg use_sim_time)"/>
+    <arg name="save_map" value="false"/>
+  </include>
+
+  <node pkg="tf2_ros"
+        type="static_transform_publisher"
+        name="fast_lio_base_to_imu"
+        args="0 0 0 0 0 0 1 base_link imu_link"/>
+  <node pkg="tf2_ros"
+        type="static_transform_publisher"
+        name="fast_lio_motion_to_base"
+        args="0 0 0 0 0 0 1 motion_link base_link"/>
+
+  <node pkg="fast_lio_localization_humanoid"
+        type="fast_lio_humanoid_localization"
+        name="fast_lio_humanoid_localization"
+        output="screen"
+        required="true">
+    <rosparam command="load"
+              file="$(find fast_lio_localization_humanoid)/config/localization.yaml"/>
+    <param name="path_map" value="$(arg map)"/>
+  </node>
+</launch>

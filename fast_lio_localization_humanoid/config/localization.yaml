@@ -1,0 +1,42 @@
+# x, y, z, roll, pitch, yaw; angles are degrees.
+initialpose: [0, 0, 0, 0, 0, 0]
+
+frames:
+  map: "map"
+  odom: "camera_init"
+  body: "body"
+  base: "base_link"
+  imu: "imu_link"
+  motion: "motion_link"
+
+topics:
+  odometry: "/fast_lio_humanoid/odometry"
+  scan: "/fast_lio_humanoid/cloud_registered"
+  initialpose: "/initialpose"
+  localization: "/fast_lio_humanoid/localization"
+  confidence: "/fast_lio_humanoid/localization_confidence"
+  delay: "/fast_lio_humanoid/localization_delay_ms"
+
+publisher_queue_size: 10
+subscriber_queue_size: 10
+pcd_queue_maxsize: 5
+voxelsize_coarse: 0.3
+voxelsize_fine: 0.15
+threshold_fitness: 0.5
+threshold_fitness_init: 0.5
+loc_frequence: 2.5
+save_scan: false
+save_path: "/tmp/fast_lio_localization_humanoid/scans"
+hidden_removal: false
+maxpoints_source: 80000
+maxpoints_target: 400000
+filter_odom2map: false
+kalman_processVar2: 0.001
+kalman_estimatedMeasVar2: 0.02
+confidence_loc_th: 0.7
+dis_updatemap: 3.5
+
+kf_baselink2map:
+  x: [0.001, 0.002]
+  y: [0.001, 0.005]
+  z: [0.00001, 0.04]

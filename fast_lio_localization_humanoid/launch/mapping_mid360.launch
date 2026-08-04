@@ -1,0 +1,21 @@
+<launch>
+  <arg name="config" default="$(find fast_lio_localization_humanoid)/config/mid360.yaml"/>
+  <arg name="lid_topic" default="/livox/lidar"/>
+  <arg name="imu_topic" default="/livox/imu"/>
+  <arg name="use_sim_time" default="false"/>
+  <arg name="save_map" default="false"/>
+  <arg name="output_directory" default="/tmp/fast_lio_localization_humanoid"/>
+
+  <param name="/use_sim_time" value="$(arg use_sim_time)"/>
+  <rosparam command="load" file="$(arg config)"/>
+  <param name="common/lid_topic" value="$(arg lid_topic)"/>
+  <param name="common/imu_topic" value="$(arg imu_topic)"/>
+  <param name="pcd_save/pcd_save_en" value="$(arg save_map)"/>
+  <param name="pcd_save/output_directory" value="$(arg output_directory)"/>
+
+  <node pkg="fast_lio_localization_humanoid"
+        type="fast_lio_humanoid_mapping"
+        name="fast_lio_humanoid_mapping"
+        output="screen"
+        required="true"/>
+</launch>
